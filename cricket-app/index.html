@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PitchCode — Cricket Scoring & Auction</title>
+<link rel="stylesheet" href="css/theme.css">
+<style>
+  .hero { padding: 60px 0 30px; text-align: center; }
+  .hero .eyebrow { display: block; margin-bottom: 10px; }
+  .hero h1 { font-size: 4.2rem; }
+  .hero h1 .accent { color: var(--led-amber); }
+  .hero p.lede { max-width: 560px; margin: 14px auto 0; font-size: 1.05rem; }
+  .role-grid { margin-top: 40px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .join-panel { max-width: 480px; margin: 50px auto 0; }
+  .join-tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+  .join-tabs button { flex: 1; }
+  .join-tabs button.active { background: var(--led-amber); color: var(--scoreboard-black); border-color: transparent; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="index.html" class="brand">
+    <span class="mark">PitchCode</span>
+    <span class="tag">Scoring &amp; Auction</span>
+  </a>
+  <div class="flex gap-8">
+    <a href="demo.html" class="btn btn-ghost btn-sm">Load demo data →</a>
+    <span id="userBadge" class="badge muted">Guest</span>
+  </div>
+</div>
+
+<main>
+  <div class="wrap">
+    <section class="hero">
+      <span class="eyebrow">Build · Schedule · Score · Auction</span>
+      <h1>Run the whole<br><span class="accent">tournament</span> from here.</h1>
+    </section>
+
+    <section class="grid grid-4 role-grid">
+      <a class="btn-role" href="tournament.html">
+        <span class="role-title">Organizer</span>
+        <span class="role-desc">Create a tournament, build the schedule, manage groups &amp; knockouts.</span>
+      </a>
+      <a class="btn-role" href="scorer.html">
+        <span class="role-title">Scorer</span>
+        <span class="role-desc">Ball-by-ball live scoring with full undo &amp; player stats.</span>
+      </a>
+      <a class="btn-role" href="bidder-setup.html">
+        <span class="role-title">Auction Head</span>
+        <span class="role-desc">Set up players, categories, purses &amp; run the live bid room.</span>
+      </a>
+      <a class="btn-role" href="viewer.html">
+        <span class="role-title">Viewer</span>
+        <span class="role-desc">Search a tournament or auction room code to watch live.</span>
+      </a>
+      <a class="btn-role" href="friendly-setup.html">
+        <span class="role-title">Quick Match</span>
+        <span class="role-desc">Score a one-off friendly match — just team names, overs &amp; wickets, no tournament setup needed.</span>
+      </a>
+    </section>
+
+    <section class="panel join-panel">
+      <div class="join-tabs">
+        <button class="btn btn-secondary active" data-tab="score">Search Live Score</button>
+        <button class="btn btn-secondary" data-tab="auction">Join Auction Room</button>
+      </div>
+
+      <div id="scoreTab">
+        <div class="field">
+          <label for="scoreCode">Tournament Code</label>
+          <input type="text" id="scoreCode" maxlength="6" placeholder="e.g. K4T9QX" style="text-transform:uppercase; letter-spacing:0.1em;">
+        </div>
+        <button class="btn btn-primary btn-block" onclick="goToScore()">View Live Score →</button>
+      </div>
+
+      <div id="auctionTab" class="hidden">
+        <div class="field">
+          <label for="roomCode">Auction Room Code</label>
+          <input type="text" id="roomCode" maxlength="6" placeholder="e.g. B7X2LM" style="text-transform:uppercase; letter-spacing:0.1em;">
+        </div>
+        <div class="field">
+          <label for="joinAs">Join as</label>
+          <select id="joinAs">
+            <option value="owner">Team Owner (register / bid)</option>
+            <option value="viewer">Viewer (watch only)</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-block" onclick="goToAuction()">Enter Room →</button>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script>
+  document.querySelectorAll('.join-tabs button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.join-tabs button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const tab = btn.dataset.tab;
+      document.getElementById('scoreTab').classList.toggle('hidden', tab !== 'score');
+      document.getElementById('auctionTab').classList.toggle('hidden', tab !== 'auction');
+    });
+  });
+
+  function goToScore() {
+    const code = document.getElementById('scoreCode').value.trim().toUpperCase();
+    if (!code) return Utils.toast('Enter a tournament code', 'error');
+    window.location.href = `viewer.html?code=${code}&type=tournament`;
+  }
+
+  function goToAuction() {
+    const code = document.getElementById('roomCode').value.trim().toUpperCase();
+    const as = document.getElementById('joinAs').value;
+    if (!code) return Utils.toast('Enter a room code', 'error');
+    const room = DB.get(`auctionRooms/${code}`);
+    if (!room) return Utils.toast('No auction room found with that code', 'error');
+    if (as === 'owner') window.location.href = `owner.html?code=${code}`;
+    else window.location.href = `viewer.html?code=${code}&type=auction`;
+  }
+</script>
+</body>
+</html>

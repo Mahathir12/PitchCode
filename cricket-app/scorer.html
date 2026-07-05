@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scorer — PitchCode</title>
+<link rel="stylesheet" href="css/theme.css">
+<style>
+  .layout { display: grid; grid-template-columns: 1.3fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .batter-row, .bowler-row { display:flex; justify-content:space-between; padding: 8px 0; border-bottom: 1px solid var(--panel-border); font-family: var(--font-mono); font-size: 0.88rem; }
+  .batter-row.on-strike { color: var(--led-amber); }
+  .this-over { display:flex; gap:6px; flex-wrap:wrap; margin-top: 10px; }
+  .setup-box { max-width: 520px; margin: 40px auto; }
+  .extra-btns { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:100; }
+  .modal { background: var(--scoreboard-panel); border:1px solid var(--panel-border); border-radius: var(--radius); padding: 24px; max-width: 420px; width: 90%; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="index.html" class="brand"><span class="mark">PitchCode</span><span class="tag">Scorer</span></a>
+  <a id="backLink" href="tournament.html" class="btn btn-secondary btn-sm">← Back to Tournament</a>
+</div>
+
+<main>
+  <div class="wrap">
+
+    <!-- TOSS SETUP -->
+    <div id="tossSetup" class="panel setup-box hidden">
+      <h2>Toss</h2>
+      <div class="field mt-16">
+        <label for="tossWinner">Toss won by</label>
+        <select id="tossWinner"></select>
+      </div>
+      <div class="field">
+        <label for="tossDecision">Elected to</label>
+        <select id="tossDecision"><option value="bat">Bat</option><option value="bowl">Bowl</option></select>
+      </div>
+      <button class="btn btn-primary btn-block" onclick="confirmToss()">Start Match</button>
+    </div>
+
+    <!-- OPENERS SETUP -->
+    <div id="openersSetup" class="panel setup-box hidden">
+      <h2 id="openersTitle">Select openers</h2>
+      <div class="field mt-16">
+        <label>Striker (on strike)</label>
+        <div id="strikerPickerWrap"></div>
+      </div>
+      <div class="field">
+        <label>Non-striker</label>
+        <div id="nonStrikerPickerWrap"></div>
+      </div>
+      <div class="field">
+        <label>Opening bowler</label>
+        <div id="bowlerPickerWrap"></div>
+      </div>
+      <button class="btn btn-primary btn-block" onclick="confirmOpeners()">Begin Innings</button>
+    </div>
+
+    <!-- LIVE SCORING -->
+    <div id="liveArea" class="hidden">
+      <div class="led-board mb-16">
+        <span class="badge badge-live"><span class="led-live-dot"></span>LIVE</span>
+        <div class="led-score mt-8" id="ledScore">0<span class="sub">/0</span></div>
+        <div class="led-meta">
+          <span><b id="ledOvers">0.0</b> overs</span>
+          <span>RR <b id="ledRR">0.00</b></span>
+          <span id="targetMeta" class="hidden">Target <b id="ledTarget">-</b> · Need <b id="ledNeed">-</b> · RRR <b id="ledRRR">-</b></span>
+        </div>
+      </div>
+
+      <div class="layout">
+        <div>
+          <div class="panel">
+            <div class="flex-between">
+              <h3>This over</h3>
+              <button class="btn btn-ghost btn-sm" onclick="undoLast()">↺ Undo last ball</button>
+            </div>
+            <div class="this-over" id="thisOverBox"></div>
+          </div>
+
+          <div class="panel">
+            <h3>Score a ball</h3>
+            <div class="keypad mt-16">
+              <button class="btn btn-secondary" onclick="scoreRuns(0)">0</button>
+              <button class="btn btn-secondary" onclick="scoreRuns(1)">1</button>
+              <button class="btn btn-secondary" onclick="scoreRuns(2)">2</button>
+              <button class="btn btn-secondary" onclick="scoreRuns(3)">3</button>
+              <button class="btn btn-secondary" onclick="scoreRuns(4)" style="border-color:var(--six-blue);color:var(--six-blue);">4</button>
+              <button class="btn btn-secondary" onclick="scoreRuns(5)">5</button>
+              <button class="btn btn-secondary" onclick="scoreRuns(6)" style="border-color:var(--led-amber);color:var(--led-amber);">6</button>
+              <button class="btn btn-danger" onclick="openWicketModal()">Wicket</button>
+            </div>
+            <div class="extra-btns">
+              <button class="btn btn-secondary btn-sm" onclick="scoreExtra('wide')">Wide (+1)</button>
+              <button class="btn btn-secondary btn-sm" onclick="scoreExtra('noball')">No Ball (+1)</button>
+              <button class="btn btn-secondary btn-sm" onclick="openByeModal('bye')">Bye</button>
+              <button class="btn btn-secondary btn-sm" onclick="openByeModal('legbye')">Leg Bye</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h3>Manual corrections</h3>
+            <div class="flex gap-8 mt-16">
+              <button class="btn btn-secondary btn-sm" onclick="swapStrike()">Swap Strike</button>
+              <button class="btn btn-secondary btn-sm" onclick="promptChangeBowler()">Change Bowler</button>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="panel">
+            <h3>Batting</h3>
+            <div id="battersBox" class="mt-16"></div>
+            <h3 class="mt-24">Bowling</h3>
+            <div id="bowlerBox" class="mt-16"></div>
+            <h3 class="mt-24">Fall of wickets</h3>
+            <div id="fowBox" class="mt-16 muted"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- INNINGS BREAK -->
+    <div id="inningsBreak" class="panel setup-box hidden center">
+      <h2>Innings complete</h2>
+      <p id="inningsBreakSummary" class="mt-16"></p>
+      <button class="btn btn-primary btn-block mt-16" onclick="showOpenersForInnings2()">Start 2nd Innings →</button>
+    </div>
+
+    <!-- MATCH COMPLETE -->
+    <div id="matchComplete" class="panel setup-box hidden center">
+      <h2>Match complete</h2>
+      <p id="matchResultText" class="mt-16" style="font-size:1.2rem;"></p>
+      <button class="btn btn-primary btn-block mt-16" onclick="finishAndSave()">Save Match &amp; Update Stats</button>
+    </div>
+
+  </div>
+</main>
+
+<div id="modalRoot"></div>
+
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/scoring-engine.js"></script>
+<script src="js/stats.js"></script>
+<script>
+const tournamentCode = Utils.qs('tournament');
+const matchId = Utils.qs('match');
+const friendlyCode = Utils.qs('friendly');
+
+if (friendlyCode) {
+  document.getElementById('backLink').href = 'index.html';
+  document.getElementById('backLink').textContent = '← Back to Home';
+} else {
+  document.getElementById('backLink').href = `tournament.html?code=${tournamentCode}`;
+}
+
+let tournament = null;
+let match = null;      // raw DB record: { id, teamAId, teamBId, round, status, scoreState }
+let engine = null;     // revived MatchEngine instance
+
+function reviveInnings(obj) { return obj ? Object.setPrototypeOf(obj, InningsEngine.prototype) : null; }
+function reviveMatch(obj) {
+  Object.setPrototypeOf(obj, MatchEngine.prototype);
+  reviveInnings(obj.innings1);
+  if (obj.innings2) reviveInnings(obj.innings2);
+  return obj;
+}
+
+function teamPlayers(teamId) {
+  return (tournament.teams[teamId] && tournament.teams[teamId].players) || [];
+}
+function playerName(id) {
+  for (const t of Object.values(tournament.teams)) {
+    const p = (t.players || []).find(pl => pl.id === id);
+    if (p) return p.name;
+  }
+  return id;
+}
+
+/** Renders either a <select> (tournament mode, fixed squad) or a free-text
+ *  input with a <datalist> of previously-used names (friendly mode, where
+ *  there's no pre-registered squad to pick from). */
+function pickerHTML(inputId, candidateList) {
+  if (friendlyCode) {
+    const dlId = inputId + '_dl';
+    return `<input type="text" id="${inputId}" list="${dlId}" placeholder="Type or pick a name" autocomplete="off">
+      <datalist id="${dlId}">${candidateList.map(p => `<option value="${Utils.escapeHtml(p.name)}">`).join('')}</datalist>`;
+  }
+  return `<select id="${inputId}">${candidateList.map(p => `<option value="${Utils.escapeHtml(p.id)}">${Utils.escapeHtml(p.name)}</option>`).join('')}</select>`;
+}
+
+/** In friendly mode, adds a newly-typed name to the known-players list (so
+ *  it shows up as a suggestion next time) and reuses the existing entry's
+ *  casing if the name was already seen (case-insensitive) so stats don't
+ *  fragment across "Rahim" vs "rahim". No-op in tournament mode. */
+function registerFriendlyPlayer(teamId, typedName) {
+  if (!friendlyCode || !typedName) return typedName;
+  const list = tournament.teams[teamId].players;
+  const existing = list.find(p => p.name.toLowerCase() === typedName.toLowerCase());
+  if (existing) return existing.name;
+  list.push({ id: typedName, name: typedName });
+  const key = teamId === 'A' ? 'teamAKnownPlayers' : 'teamBKnownPlayers';
+  match[key] = list.map(p => p.name);
+  DB.set(`friendlyMatches/${friendlyCode}/${key}`, match[key]);
+  return typedName;
+}
+
+function init() {
+  if (friendlyCode) {
+    match = DB.get(`friendlyMatches/${friendlyCode}`);
+    if (!match) { Utils.toast('Match not found', 'error'); return; }
+    // Shim a "tournament" object so the rest of the page (which reads
+    // tournament.teams[id].name / .players, tournament.meta.oversLimit)
+    // works completely unchanged for friendly matches.
+    tournament = {
+      meta: { oversLimit: match.meta.oversLimit, wicketsLimit: match.meta.wicketsLimit },
+      teams: {
+        A: { id: 'A', name: match.meta.teamAName, players: (match.teamAKnownPlayers || []).map(n => ({ id: n, name: n })) },
+        B: { id: 'B', name: match.meta.teamBName, players: (match.teamBKnownPlayers || []).map(n => ({ id: n, name: n })) }
+      },
+      players: match.players || {}
+    };
+  } else {
+    tournament = DB.get(`tournaments/${tournamentCode}`);
+    match = DB.get(`tournaments/${tournamentCode}/matches/${matchId}`);
+    if (!tournament || !match) { Utils.toast('Match not found', 'error'); return; }
+  }
+
+  if (!match.scoreState) {
+    showTossSetup();
+  } else {
+    engine = reviveMatch(Utils.deepClone(match.scoreState.matchEngine));
+    renderCurrentState();
+  }
+}
+
+function persist() {
+  match.scoreState.matchEngine = JSON.parse(JSON.stringify(engine));
+  if (friendlyCode) DB.set(`friendlyMatches/${friendlyCode}`, match);
+  else DB.set(`tournaments/${tournamentCode}/matches/${matchId}`, match);
+}
+
+/* ---------- Setup: Toss ---------- */
+function showTossSetup() {
+  document.getElementById('tossSetup').classList.remove('hidden');
+  const sel = document.getElementById('tossWinner');
+  sel.innerHTML = `<option value="${match.teamAId}">${playerNameSafe(tournament.teams[match.teamAId]?.name)}</option>
+                    <option value="${match.teamBId}">${playerNameSafe(tournament.teams[match.teamBId]?.name)}</option>`;
+}
+function playerNameSafe(n) { return Utils.escapeHtml(n || 'Team'); }
+
+function confirmToss() {
+  const tossWinnerId = document.getElementById('tossWinner').value;
+  const tossDecision = document.getElementById('tossDecision').value;
+  engine = new MatchEngine({
+    id: friendlyCode || matchId, teamAId: match.teamAId, teamBId: match.teamBId,
+    oversLimit: tournament.meta.oversLimit, tossWinnerId, tossDecision
+  });
+  match.scoreState = {
+    matchEngine: JSON.parse(JSON.stringify(engine)),
+    currentStriker: null, currentNonStriker: null, currentBowler: null,
+    dismissedIds1: [], dismissedIds2: []
+  };
+  match.status = 'in_progress';
+  persist();
+
+  document.getElementById('tossSetup').classList.add('hidden');
+  showOpenersSetup(1);
+}
+
+/* ---------- Setup: Openers ---------- */
+function showOpenersSetup(inningsNum) {
+  const inn = inningsNum === 1 ? engine.innings1 : engine.innings2;
+  document.getElementById('openersTitle').textContent =
+    `Select openers — ${tournament.teams[inn.battingTeamId].name} batting`;
+  document.getElementById('strikerPickerWrap').innerHTML = pickerHTML('strikerSelect', teamPlayers(inn.battingTeamId));
+  document.getElementById('nonStrikerPickerWrap').innerHTML = pickerHTML('nonStrikerSelect', teamPlayers(inn.battingTeamId));
+  document.getElementById('bowlerPickerWrap').innerHTML = pickerHTML('bowlerSelect', teamPlayers(inn.bowlingTeamId));
+  document.getElementById('openersSetup').classList.remove('hidden');
+  document.getElementById('inningsBreak').classList.add('hidden');
+}
+
+function confirmOpeners() {
+  const inn = engine.status === 'innings2' ? engine.innings2 : engine.innings1;
+  let striker = document.getElementById('strikerSelect').value.trim();
+  let nonStriker = document.getElementById('nonStrikerSelect').value.trim();
+  let bowler = document.getElementById('bowlerSelect').value.trim();
+  if (!striker || !nonStriker || !bowler) return Utils.toast('Enter striker, non-striker and bowler', 'error');
+  if (striker.toLowerCase() === nonStriker.toLowerCase()) return Utils.toast('Striker and non-striker must differ', 'error');
+
+  striker = registerFriendlyPlayer(inn.battingTeamId, striker);
+  nonStriker = registerFriendlyPlayer(inn.battingTeamId, nonStriker);
+  bowler = registerFriendlyPlayer(inn.bowlingTeamId, bowler);
+
+  match.scoreState.currentStriker = striker;
+  match.scoreState.currentNonStriker = nonStriker;
+  match.scoreState.currentBowler = bowler;
+  inn.startPartnership(striker, nonStriker);
+
+  persist();
+  document.getElementById('openersSetup').classList.add('hidden');
+  document.getElementById('liveArea').classList.remove('hidden');
+  renderCurrentState();
+}
+
+function showOpenersForInnings2() {
+  if (engine.status !== 'innings2') {
+    engine.startSecondInnings();
+    persist();
+  }
+  showOpenersSetup(2);
+}
+
+/* ---------- Scoring actions ---------- */
+function activeInnings() { return engine.status === 'innings2' ? engine.innings2 : engine.innings1; }
+
+function buildEvent({ runs = 0, extraType = null, extraRuns = 0, wicket = false, wicketType = null, dismissedId = null, fielderId = null }) {
+  const inn = activeInnings();
+  const over = Math.floor(inn.legalBalls / 6);
+  const ballInOver = inn.legalBalls % 6;
+  return makeBallEvent({
+    over, ballInOver,
+    bowlerId: match.scoreState.currentBowler, strikerId: match.scoreState.currentStriker,
+    nonStrikerId: match.scoreState.currentNonStriker,
+    runs, extraType, extraRuns, wicket, wicketType, dismissedId, fielderId
+  });
+}
+
+function scoreRuns(runs) {
+  const event = buildEvent({ runs });
+  activeInnings().recordBall(event);
+  postBallUpdate(event, runs);
+}
+
+function scoreExtra(type) {
+  // wide / noball: 1 extra run by default, batters can still run further but
+  // we keep this simple (tap again for byes off a no-ball if needed).
+  const event = buildEvent({ runs: 0, extraType: type, extraRuns: 1 });
+  activeInnings().recordBall(event);
+  postBallUpdate(event, 0, true);
+}
+
+function openByeModal(type) {
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+    <div class="modal-backdrop"><div class="modal">
+      <h3>${type === 'bye' ? 'Bye' : 'Leg Bye'} — runs taken</h3>
+      <div class="keypad mt-16">
+        ${[1,2,3,4].map(r => `<button class="btn btn-secondary" onclick="confirmByeRuns('${type}', ${r})">${r}</button>`).join('')}
+      </div>
+      <button class="btn btn-ghost btn-block mt-16" onclick="closeModal()">Cancel</button>
+    </div></div>`;
+}
+function confirmByeRuns(type, runs) {
+  closeModal();
+  const event = buildEvent({ runs: 0, extraType: type, extraRuns: runs });
+  activeInnings().recordBall(event);
+  postBallUpdate(event, 0);
+}
+
+function openWicketModal() {
+  const inn = activeInnings();
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+    <div class="modal-backdrop"><div class="modal">
+      <h3>Wicket</h3>
+      <div class="field mt-16">
+        <label>Batter dismissed</label>
+        <select id="wkBatter">
+          <option value="${match.scoreState.currentStriker}">${Utils.escapeHtml(playerName(match.scoreState.currentStriker))} (striker)</option>
+          <option value="${match.scoreState.currentNonStriker}">${Utils.escapeHtml(playerName(match.scoreState.currentNonStriker))} (non-striker)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Dismissal type</label>
+        <select id="wkType">
+          <option value="bowled">Bowled</option>
+          <option value="caught">Caught</option>
+          <option value="lbw">LBW</option>
+          <option value="run_out">Run Out</option>
+          <option value="stumped">Stumped</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Runs completed before dismissal</label>
+        <input type="number" id="wkRuns" value="0" min="0" max="6">
+      </div>
+      <button class="btn btn-danger btn-block" onclick="confirmWicket()">Confirm Wicket</button>
+      <button class="btn btn-ghost btn-block mt-16" onclick="closeModal()">Cancel</button>
+    </div></div>`;
+}
+
+function confirmWicket() {
+  const dismissedId = document.getElementById('wkBatter').value;
+  const wicketType = document.getElementById('wkType').value;
+  const runs = parseInt(document.getElementById('wkRuns').value, 10) || 0;
+  closeModal();
+
+  const event = buildEvent({ runs, wicket: true, wicketType, dismissedId });
+  activeInnings().recordBall(event);
+
+  const key = engine.status === 'innings2' ? 'dismissedIds2' : 'dismissedIds1';
+  match.scoreState[key].push(dismissedId);
+
+  postBallUpdate(event, runs, false, dismissedId);
+}
+
+function closeModal() { document.getElementById('modalRoot').innerHTML = ''; }
+
+function postBallUpdate(event, runningRuns, isExtraNoRotate = false, dismissedId = null) {
+  // Strike rotation on odd runs (byes/legbyes count; wides/no-ball extra run does not)
+  if (!isExtraNoRotate && runningRuns % 2 === 1) swapStrikeSilent();
+
+  const inn = activeInnings();
+  const overJustEnded = InningsEngine.isLegalDelivery(event.extraType) && inn.legalBalls % 6 === 0 && inn.legalBalls > 0;
+
+  if (dismissedId) {
+    // Need a new batter unless innings/match just ended
+    if (!inn.isInningsOver()) {
+      pendingNewBatterFor = dismissedId;
+    }
+  }
+
+  if (overJustEnded && !inn.isInningsOver()) {
+    swapStrikeSilent();
+    pendingNewBowler = true;
+  }
+
+  persist();
+
+  if (inn.isInningsOver()) {
+    if (engine.status === 'innings1') { handleInningsBreak(); return; }
+    if (engine.status === 'innings2') { engine.checkMatchComplete(); persist(); handleMatchComplete(); return; }
+  }
+
+  if (pendingNewBatterFor) { promptNewBatter(); return; }
+  if (pendingNewBowler) { promptChangeBowler(); return; }
+
+  renderCurrentState();
+}
+
+let pendingNewBatterFor = null;
+let pendingNewBowler = false;
+
+function swapStrike() { swapStrikeSilent(); persist(); renderCurrentState(); }
+function swapStrikeSilent() {
+  const s = match.scoreState;
+  [s.currentStriker, s.currentNonStriker] = [s.currentNonStriker, s.currentStriker];
+}
+
+function promptNewBatter() {
+  const inn = activeInnings();
+  const dismissedKey = engine.status === 'innings2' ? 'dismissedIds2' : 'dismissedIds1';
+  const dismissed = new Set(match.scoreState[dismissedKey]);
+  const available = teamPlayers(inn.battingTeamId).filter(p =>
+    p.id !== match.scoreState.currentStriker && p.id !== match.scoreState.currentNonStriker && !dismissed.has(p.id));
+
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+    <div class="modal-backdrop"><div class="modal">
+      <h3>New batter</h3>
+      <div class="field mt-16">
+        <label>Incoming batter</label>
+        ${pickerHTML('newBatterSelect', available)}
+      </div>
+      <button class="btn btn-primary btn-block" onclick="confirmNewBatter()">Confirm</button>
+    </div></div>`;
+}
+function confirmNewBatter() {
+  let newId = document.getElementById('newBatterSelect').value.trim();
+  if (!newId) return Utils.toast('Enter a player name', 'error');
+  const inn = activeInnings();
+  newId = registerFriendlyPlayer(inn.battingTeamId, newId);
+  const s = match.scoreState;
+  if (pendingNewBatterFor === s.currentStriker) s.currentStriker = newId;
+  else s.currentNonStriker = newId;
+  pendingNewBatterFor = null;
+  inn.startPartnership(s.currentStriker, s.currentNonStriker);
+  closeModal();
+  persist();
+
+  if (pendingNewBowler) { promptChangeBowler(); return; }
+  renderCurrentState();
+}
+
+function promptChangeBowler() {
+  const inn = activeInnings();
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+    <div class="modal-backdrop"><div class="modal">
+      <h3>Select bowler</h3>
+      <div class="field mt-16">${pickerHTML('newBowlerSelect', teamPlayers(inn.bowlingTeamId))}</div>
+      <button class="btn btn-primary btn-block" onclick="confirmNewBowler()">Confirm</button>
+    </div></div>`;
+}
+function confirmNewBowler() {
+  let newBowler = document.getElementById('newBowlerSelect').value.trim();
+  if (!newBowler) return Utils.toast('Enter a bowler name', 'error');
+  const inn = activeInnings();
+  newBowler = registerFriendlyPlayer(inn.bowlingTeamId, newBowler);
+  match.scoreState.currentBowler = newBowler;
+  pendingNewBowler = false;
+  closeModal();
+  persist();
+  renderCurrentState();
+}
+
+/* ---------- Undo ---------- */
+function undoLast() {
+  const inn = activeInnings();
+  const removed = inn.undoLast();
+  if (!removed) return Utils.toast('Nothing to undo', 'error');
+  Utils.toast('Last ball undone (score reverted — please re-check striker/bowler manually)', 'info');
+  persist();
+  renderCurrentState();
+}
+
+/* ---------- Innings break / match complete ---------- */
+function handleInningsBreak() {
+  document.getElementById('liveArea').classList.add('hidden');
+  document.getElementById('inningsBreak').classList.remove('hidden');
+  document.getElementById('inningsBreakSummary').textContent =
+    `${tournament.teams[engine.innings1.battingTeamId].name} scored ${engine.innings1.score}/${engine.innings1.wickets} in ${Utils.formatOvers(engine.innings1.legalBalls)} overs. Target: ${engine.innings1.score + 1}.`;
+}
+
+function handleMatchComplete() {
+  document.getElementById('liveArea').classList.add('hidden');
+  document.getElementById('matchComplete').classList.remove('hidden');
+  const r = engine.result;
+  let text;
+  if (!r) text = 'Match ended.';
+  else if (r.winnerId === null) text = "It's a tie!";
+  else text = `${tournament.teams[r.winnerId].name} won by ${r.margin}${r.method === 'chased' ? ' (chased down)' : ''}.`;
+  document.getElementById('matchResultText').textContent = text;
+}
+
+function finishAndSave() {
+  // Aggregate stats from both innings into the players map (tournament or friendly)
+  const statsMap = new Map(Object.entries(tournament.players || {}));
+  [engine.innings1, engine.innings2].forEach(inn => {
+    if (!inn) return;
+    inn.ballQueue.forEach(ev => {
+      const strikerName = playerName(ev.strikerId);
+      const bowlerName = playerName(ev.bowlerId);
+      Stats.applyBallToStats(statsMap, { ...ev, strikerName, bowlerName }, ev.strikerId, ev.bowlerId, inn.battingTeamId);
+    });
+  });
+  const playersObj = {};
+  statsMap.forEach((v, k) => playersObj[k] = v);
+
+  match.status = 'completed';
+  match.result = engine.result;
+
+  if (friendlyCode) {
+    match.players = playersObj;
+    DB.set(`friendlyMatches/${friendlyCode}`, match);
+    Utils.toast('Match saved.', 'success');
+    window.location.href = `viewer.html?code=${friendlyCode}&type=friendly`;
+  } else {
+    DB.set(`tournaments/${tournamentCode}/players`, playersObj);
+    DB.set(`tournaments/${tournamentCode}/matches/${matchId}`, match);
+    Utils.toast('Match saved. Stats updated.', 'success');
+    window.location.href = `tournament.html?code=${tournamentCode}`;
+  }
+}
+
+/* ---------- Render ---------- */
+function renderCurrentState() {
+  document.getElementById('liveArea').classList.remove('hidden');
+  document.getElementById('tossSetup').classList.add('hidden');
+  document.getElementById('openersSetup').classList.add('hidden');
+  document.getElementById('inningsBreak').classList.add('hidden');
+  document.getElementById('matchComplete').classList.add('hidden');
+
+  const inn = activeInnings();
+  document.getElementById('ledScore').innerHTML = `${inn.score}<span class="sub">/${inn.wickets}</span>`;
+  document.getElementById('ledOvers').textContent = Utils.formatOvers(inn.legalBalls);
+  document.getElementById('ledRR').textContent = inn.runRate().toFixed(2);
+
+  if (engine.status === 'innings2') {
+    document.getElementById('targetMeta').classList.remove('hidden');
+    document.getElementById('ledTarget').textContent = engine.target;
+    document.getElementById('ledNeed').textContent = Math.max(0, engine.target - inn.score);
+    const rrr = inn.requiredRunRate(engine.target);
+    document.getElementById('ledRRR').textContent = rrr === null ? '-' : rrr.toFixed(2);
+  } else {
+    document.getElementById('targetMeta').classList.add('hidden');
+  }
+
+  // This over
+  const thisOverBox = document.getElementById('thisOverBox');
+  const currentOverNum = Math.floor(inn.legalBalls / 6);
+  const overBalls = inn.ballQueue.filter(e => e.over === currentOverNum);
+  thisOverBox.innerHTML = overBalls.map(chipFor).join('') || '<span class="muted">New over</span>';
+
+  // Batters
+  const s = match.scoreState;
+  document.getElementById('battersBox').innerHTML = [s.currentStriker, s.currentNonStriker].map(id => {
+    const runs = ballsFacedRuns(inn, id);
+    const cls = id === s.currentStriker ? 'batter-row on-strike' : 'batter-row';
+    return `<div class="${cls}"><span>${Utils.escapeHtml(playerName(id))}${id === s.currentStriker ? ' *' : ''}</span><span>${runs.runs} (${runs.balls})</span></div>`;
+  }).join('');
+
+  // Bowler
+  const bStats = bowlerFigures(inn, s.currentBowler);
+  document.getElementById('bowlerBox').innerHTML =
+    `<div class="bowler-row"><span>${Utils.escapeHtml(playerName(s.currentBowler))}</span><span>${bStats.overs}-${bStats.runs}-${bStats.wickets}</span></div>`;
+
+  // Fall of wickets
+  document.getElementById('fowBox').innerHTML = inn.fallOfWickets.length
+    ? inn.fallOfWickets.map(f => `${f.score}-${f.wicketNo} (${f.overs})`).join(' &nbsp;·&nbsp; ')
+    : 'None yet';
+}
+
+function chipFor(ev) {
+  if (ev.wicket) return '<span class="ball-chip wicket">W</span>';
+  if (ev.extraType === 'wide') return `<span class="ball-chip extra">Wd${ev.extraRuns > 1 ? '+' + (ev.extraRuns-1) : ''}</span>`;
+  if (ev.extraType === 'noball') return `<span class="ball-chip extra">Nb${ev.extraRuns > 1 ? '+' + (ev.extraRuns-1) : ''}</span>`;
+  if (ev.extraType === 'bye') return `<span class="ball-chip extra">${ev.extraRuns}b</span>`;
+  if (ev.extraType === 'legbye') return `<span class="ball-chip extra">${ev.extraRuns}lb</span>`;
+  if (ev.runs === 0) return '<span class="ball-chip dot">•</span>';
+  if (ev.runs === 4) return '<span class="ball-chip four">4</span>';
+  if (ev.runs === 6) return '<span class="ball-chip six">6</span>';
+  return `<span class="ball-chip">${ev.runs}</span>`;
+}
+
+function ballsFacedRuns(inn, batterId) {
+  let runs = 0, balls = 0;
+  inn.ballQueue.forEach(ev => {
+    if (ev.strikerId !== batterId) return;
+    if (!ev.extraType || ev.extraType === 'noball') runs += ev.runs;
+    if (InningsEngine.isLegalDelivery(ev.extraType)) balls += 1;
+  });
+  return { runs, balls };
+}
+
+function bowlerFigures(inn, bowlerId) {
+  let runs = 0, wickets = 0, balls = 0;
+  inn.ballQueue.forEach(ev => {
+    if (ev.bowlerId !== bowlerId) return;
+    if (ev.extraType !== 'bye' && ev.extraType !== 'legbye') runs += ev.runs + (ev.extraRuns || 0);
+    if (InningsEngine.isLegalDelivery(ev.extraType)) balls += 1;
+    if (ev.wicket && ev.wicketType !== 'run_out') wickets += 1;
+  });
+  return { overs: Utils.formatOvers(balls), runs, wickets };
+}
+
+// Works with either db.js: DB.ready() resolves immediately on the
+// localStorage version, and once the first snapshot arrives on Firebase.
+if (typeof DB.ready === 'function') DB.ready().then(init);
+else init();
+</script>
+</body>
+</html>

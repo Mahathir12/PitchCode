@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live — PitchCode</title>
+<link rel="stylesheet" href="css/theme.css">
+<style>
+  .search-panel { max-width: 480px; margin: 40px auto; }
+  .match-pick { display:flex; justify-content:space-between; align-items:center; padding:12px 14px; background:var(--scoreboard-black); border:1px solid var(--panel-border); border-radius:var(--radius-sm); margin-bottom:8px; cursor:pointer; }
+  .match-pick:hover { border-color: var(--led-amber); }
+  .team-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 14px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html" class="brand"><span class="mark">PitchCode</span><span class="tag">Live Viewer</span></a>
+</div>
+
+<main><div class="wrap">
+
+  <div id="searchBox" class="panel search-panel hidden">
+    <h2>Find something to watch</h2>
+    <div class="field mt-16"><label>Code</label><input type="text" id="searchCode" style="text-transform:uppercase;letter-spacing:0.1em;"></div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary btn-block" onclick="searchAs('tournament')">Search Tournament</button>
+      <button class="btn btn-secondary btn-block" onclick="searchAs('auction')">Search Auction Room</button>
+      <button class="btn btn-secondary btn-block" onclick="searchAs('friendly')">Search Friendly Match</button>
+    </div>
+  </div>
+
+  <div id="tournamentView" class="hidden"></div>
+  <div id="auctionView" class="hidden"></div>
+  <div id="friendlyView" class="hidden"></div>
+
+</div></main>
+
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/scoring-engine.js"></script>
+<script>
+let code = Utils.qs('code');
+let type = Utils.qs('type');
+
+function searchAs(t) {
+  const c = document.getElementById('searchCode').value.trim().toUpperCase();
+  if (!c) return Utils.toast('Enter a code', 'error');
+  window.location.href = `viewer.html?code=${c}&type=${t}`;
+}
+
+function reviveInnings(obj) { return obj ? Object.setPrototypeOf(obj, InningsEngine.prototype) : null; }
+
+function init() {
+  if (!code || !type) {
+    document.getElementById('searchBox').classList.remove('hidden');
+    return;
+  }
+  if (type === 'tournament') showTournament();
+  else if (type === 'friendly') showFriendly();
+  else showAuction();
+}
+
+/* ---------- TOURNAMENT VIEW ---------- */
+let selectedMatchId = Utils.qs('match');
+
+function showTournament() {
+  const t = DB.get(`tournaments/${code}`);
+  const view = document.getElementById('tournamentView');
+  view.classList.remove('hidden');
+  if (!t) { view.innerHTML = '<div class="panel center"><h3>No tournament found for that code.</h3></div>'; return; }
+
+  if (!selectedMatchId) {
+    const matches = Object.values(t.matches || {});
+    view.innerHTML = `
+      <div class="panel">
+        <span class="eyebrow">${Utils.escapeHtml(t.meta.format)}</span>
+        <h2>${Utils.escapeHtml(t.meta.name)}</h2>
+      </div>
+      <div class="panel mt-16">
+        <h3>Matches</h3>
+        <div class="mt-16">
+          ${matches.map(m => `
+            <div class="match-pick" onclick="pickMatch('${m.id}')">
+              <span>${teamName(t,m.teamAId)} vs ${teamName(t,m.teamBId)} <span class="muted">(${Utils.escapeHtml(m.round)})</span></span>
+              <span class="badge ${m.status==='completed'?'badge-green':(m.status==='in_progress'?'badge-live':'muted')}">${m.status}</span>
+            </div>`).join('') || '<p class="muted">No matches scheduled yet.</p>'}
+        </div>
+      </div>`;
+    return;
+  }
+
+  renderMatchLive(t);
+}
+
+function teamName(t, id) { return Utils.escapeHtml((t.teams[id]||{}).name || 'TBD'); }
+function pickMatch(id) { selectedMatchId = id; window.history.replaceState({}, '', `viewer.html?code=${code}&type=tournament&match=${id}`); showTournament(); }
+
+function renderMatchLive(t) {
+  const view = document.getElementById('tournamentView');
+  const m = t.matches[selectedMatchId];
+  if (!m || !m.scoreState) {
+    view.innerHTML = `<div class="panel center"><h3>Match hasn't started yet.</h3><button class="btn btn-secondary mt-16" onclick="selectedMatchId=null;showTournament();">← Back to matches</button></div>`;
+    return;
+  }
+  const engineRaw = m.scoreState.matchEngine;
+  const inn = reviveInnings(Utils.deepClone(engineRaw.status === 'innings2' ? engineRaw.innings2 : engineRaw.innings1));
+  const battingName = teamName(t, inn.battingTeamId);
+  const bowlingName = teamName(t, inn.bowlingTeamId);
+
+  const currentOverNum = Math.floor(inn.legalBalls / 6);
+  const overBalls = inn.ballQueue.filter(e => e.over === currentOverNum);
+
+  view.innerHTML = `
+    <button class="btn btn-ghost btn-sm" onclick="selectedMatchId=null;showTournament();">← All matches</button>
+    <div class="led-board mt-16">
+      <span class="badge ${m.status==='completed'?'badge-green':'badge-live'}">${m.status==='completed'?'FINAL':'<span class="led-live-dot"></span>LIVE'}</span>
+      <div class="eyebrow mt-8">${battingName} batting</div>
+      <div class="led-score">${inn.score}<span class="sub">/${inn.wickets}</span></div>
+      <div class="led-meta">
+        <span><b>${Utils.formatOvers(inn.legalBalls)}</b> overs</span>
+        <span>RR <b>${inn.runRate().toFixed(2)}</b></span>
+        ${engineRaw.status === 'innings2' ? `<span>Target <b>${engineRaw.target}</b> · Need <b>${Math.max(0,engineRaw.target-inn.score)}</b></span>` : ''}
+      </div>
+    </div>
+    <div class="panel mt-16">
+      <h3>This over</h3>
+      <div class="this-over mt-16" style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${overBalls.map(chipFor).join('') || '<span class="muted">New over</span>'}
+      </div>
+    </div>
+    ${m.result ? `<div class="panel mt-16 center"><h3>${resultText(t,m)}</h3></div>` : ''}
+  `;
+}
+
+function resultText(t, m) {
+  if (!m.result) return '';
+  if (m.result.winnerId === null) return 'Match tied';
+  return `${teamName(t, m.result.winnerId)} won by ${m.result.margin}`;
+}
+
+function chipFor(ev) {
+  if (ev.wicket) return '<span class="ball-chip wicket">W</span>';
+  if (ev.extraType === 'wide') return '<span class="ball-chip extra">Wd</span>';
+  if (ev.extraType === 'noball') return '<span class="ball-chip extra">Nb</span>';
+  if (ev.extraType === 'bye') return `<span class="ball-chip extra">${ev.extraRuns}b</span>`;
+  if (ev.extraType === 'legbye') return `<span class="ball-chip extra">${ev.extraRuns}lb</span>`;
+  if (ev.runs === 0) return '<span class="ball-chip dot">•</span>';
+  if (ev.runs === 4) return '<span class="ball-chip four">4</span>';
+  if (ev.runs === 6) return '<span class="ball-chip six">6</span>';
+  return `<span class="ball-chip">${ev.runs}</span>`;
+}
+
+/* ---------- FRIENDLY MATCH VIEW ---------- */
+function showFriendly() {
+  const m = DB.get(`friendlyMatches/${code}`);
+  const view = document.getElementById('friendlyView');
+  view.classList.remove('hidden');
+  if (!m) { view.innerHTML = '<div class="panel center"><h3>No friendly match found for that code.</h3></div>'; return; }
+
+  const names = { A: m.meta.teamAName, B: m.meta.teamBName };
+  if (!m.scoreState) {
+    view.innerHTML = `<div class="panel center"><h3>${Utils.escapeHtml(names.A)} vs ${Utils.escapeHtml(names.B)}</h3><p class="muted mt-8">Match hasn't started yet.</p></div>`;
+    return;
+  }
+
+  const engineRaw = m.scoreState.matchEngine;
+  const inn = reviveInnings(Utils.deepClone(engineRaw.status === 'innings2' ? engineRaw.innings2 : engineRaw.innings1));
+  const battingName = names[inn.battingTeamId];
+  const currentOverNum = Math.floor(inn.legalBalls / 6);
+  const overBalls = inn.ballQueue.filter(e => e.over === currentOverNum);
+
+  view.innerHTML = `
+    <div class="panel"><span class="eyebrow">Friendly Match</span><h2>${Utils.escapeHtml(names.A)} <span class="muted">vs</span> ${Utils.escapeHtml(names.B)}</h2></div>
+    <div class="led-board mt-16">
+      <span class="badge ${m.status==='completed'?'badge-green':'badge-live'}">${m.status==='completed'?'FINAL':'<span class="led-live-dot"></span>LIVE'}</span>
+      <div class="eyebrow mt-8">${Utils.escapeHtml(battingName)} batting</div>
+      <div class="led-score">${inn.score}<span class="sub">/${inn.wickets}</span></div>
+      <div class="led-meta">
+        <span><b>${Utils.formatOvers(inn.legalBalls)}</b> overs</span>
+        <span>RR <b>${inn.runRate().toFixed(2)}</b></span>
+        ${engineRaw.status === 'innings2' ? `<span>Target <b>${engineRaw.target}</b> · Need <b>${Math.max(0,engineRaw.target-inn.score)}</b></span>` : ''}
+      </div>
+    </div>
+    <div class="panel mt-16">
+      <h3>This over</h3>
+      <div class="this-over mt-16" style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${overBalls.map(chipFor).join('') || '<span class="muted">New over</span>'}
+      </div>
+    </div>
+    ${m.result ? `<div class="panel mt-16 center"><h3>${friendlyResultText(names, m)}</h3></div>` : ''}
+  `;
+}
+
+function friendlyResultText(names, m) {
+  if (!m.result) return '';
+  if (m.result.winnerId === null) return 'Match tied';
+  return `${Utils.escapeHtml(names[m.result.winnerId])} won by ${m.result.margin}`;
+}
+
+/* ---------- AUCTION VIEW ---------- */
+function showAuction() {
+  const r = DB.get(`auctionRooms/${code}`);
+  const view = document.getElementById('auctionView');
+  view.classList.remove('hidden');
+  if (!r) { view.innerHTML = '<div class="panel center"><h3>No auction room found for that code.</h3></div>'; return; }
+
+  let currentPlayerHtml = '<p class="muted">No player currently up for bidding.</p>';
+  if (r.liveBid) {
+    const p = r.players[r.liveBid.playerId];
+    const photoHtml = p.photo ? `<img src="${p.photo}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid var(--led-amber-dim);margin-bottom:8px;">` : '';
+    currentPlayerHtml = r.liveBid.sealedMode
+      ? `${photoHtml}<h3>${Utils.escapeHtml(p.name)}</h3><p class="muted">Hidden bid in progress — amounts stay sealed until the auction head resolves.</p>`
+      : `${photoHtml}<h3>${Utils.escapeHtml(p.name)}</h3><div class="led-board mt-16"><div class="led-score">${Utils.formatCurrency(r.liveBid.currentBid)}</div>
+         <div class="led-meta">${r.liveBid.currentBidder ? 'Leading: ' + Utils.escapeHtml(r.teams[r.liveBid.currentBidder].name) : 'No bids yet'}</div></div>`;
+  }
+
+  const teams = Object.values(r.teams || {});
+  view.innerHTML = `
+    <div class="panel"><span class="eyebrow">Auction</span><h2>${Utils.escapeHtml(r.meta.name)}</h2></div>
+    <div class="panel mt-16">${currentPlayerHtml}</div>
+    <div class="panel mt-16">
+      <h3>Team sheets</h3>
+      <div class="team-grid mt-16">
+        ${teams.map(t => {
+          const pct = Math.round(100 * (t.totalPurse - t.remainingPurse) / t.totalPurse);
+          const squadNames = (t.squad||[]).map(s => r.players[s.playerId] ? r.players[s.playerId].name : '').filter(Boolean);
+          return `<div class="team-card">
+            <b>${Utils.escapeHtml(t.name)}</b>
+            <div class="mono mt-8">${Utils.formatCurrency(t.remainingPurse)} left</div>
+            <div class="purse-bar"><div style="width:${pct}%"></div></div>
+            <div class="hint mt-8">${squadNames.map(n => Utils.escapeHtml(n)).join(', ') || 'No players yet'}</div>
+          </div>`;
+        }).join('') || '<p class="muted">No teams yet.</p>'}
+      </div>
+    </div>`;
+}
+
+/* live refresh */
+if (code && type === 'tournament') DB.on(`tournaments/${code}`, () => showTournament());
+if (code && type === 'auction') DB.on(`auctionRooms/${code}`, () => showAuction());
+if (code && type === 'friendly') DB.on(`friendlyMatches/${code}`, () => showFriendly());
+
+init();
+</script>
+</body>
+</html>

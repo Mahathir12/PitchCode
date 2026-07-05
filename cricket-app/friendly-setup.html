@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quick Match — PitchCode</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html" class="brand"><span class="mark">PitchCode</span><span class="tag">Quick Match</span></a>
+</div>
+
+<main><div class="wrap">
+  <section class="panel" style="max-width:520px;margin:0 auto;">
+    <h2>Start a friendly match</h2>
+    <p class="muted">No tournament, teams, or squads needed — just the basics. Batters and bowlers get added by name as you score, so this is quick to set up on the spot.</p>
+
+    <div class="field-row mt-24">
+      <div class="field"><label for="teamAName">Team A name</label><input type="text" id="teamAName" placeholder="e.g. Blues"></div>
+      <div class="field"><label for="teamBName">Team B name</label><input type="text" id="teamBName" placeholder="e.g. Greens"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label for="fOvers">Overs per innings</label><input type="number" id="fOvers" value="6" min="1"></div>
+      <div class="field"><label for="fWickets">Wickets limit</label><input type="number" id="fWickets" value="10" min="1"></div>
+    </div>
+
+    <button class="btn btn-primary btn-block mt-16" onclick="startFriendly()">Start Match</button>
+  </section>
+</div></main>
+
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script>
+function startFriendly() {
+  const teamAName = document.getElementById('teamAName').value.trim() || 'Team A';
+  const teamBName = document.getElementById('teamBName').value.trim() || 'Team B';
+  const oversLimit = parseInt(document.getElementById('fOvers').value, 10);
+  const wicketsLimit = parseInt(document.getElementById('fWickets').value, 10);
+
+  const existing = DB.get('friendlyMatches') || {};
+  const code = Utils.generateUniqueCode(existing);
+
+  DB.set(`friendlyMatches/${code}`, {
+    meta: { teamAName, teamBName, oversLimit, wicketsLimit, createdAt: Date.now() },
+    teamAId: 'A', teamBId: 'B',
+    teamAKnownPlayers: [], teamBKnownPlayers: [],
+    status: 'scheduled', result: null, scoreState: null, players: {}
+  });
+
+  window.location.href = `scorer.html?friendly=${code}`;
+}
+</script>
+</body>
+</html>

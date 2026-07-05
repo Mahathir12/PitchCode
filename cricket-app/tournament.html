@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Organizer — PitchCode</title>
+<link rel="stylesheet" href="css/theme.css">
+<style>
+  .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--panel-border); }
+  .tabs button { background: none; border: none; color: var(--floodlight-dim); font-family: var(--font-body); font-weight: 600;
+    padding: 10px 16px; cursor: pointer; border-bottom: 2px solid transparent; }
+  .tabs button.active { color: var(--led-amber); border-bottom-color: var(--led-amber); }
+  .team-list-item { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--panel-border); }
+  .round-block { margin-bottom: 18px; }
+  .round-title { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--led-amber); margin-bottom: 8px; }
+  .match-row { display:flex; align-items:center; justify-content:space-between; padding: 12px 14px; background: var(--scoreboard-black); border: 1px solid var(--panel-border); border-radius: var(--radius-sm); margin-bottom: 8px; }
+  .vs { font-family: var(--font-display); font-size: 1.3rem; }
+  .player-tag { display:inline-flex; align-items:center; gap:6px; background: var(--scoreboard-black); border:1px solid var(--panel-border); padding: 4px 10px; border-radius: 100px; font-size:0.8rem; margin: 3px 4px 0 0; }
+  .player-tag button { background:none;border:none;color:var(--boundary-red);cursor:pointer;font-weight:700; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="index.html" class="brand"><span class="mark">PitchCode</span><span class="tag">Organizer</span></a>
+  <div id="codeBadge" class="badge badge-amber hidden"></div>
+</div>
+
+<main>
+  <div class="wrap">
+
+    <!-- ===== EXISTING TOURNAMENTS ===== -->
+    <section id="existingSection" class="panel hidden" style="max-width:640px;margin:0 auto 20px;">
+      <h3>Your tournaments</h3>
+      <p class="hint">Stored in this browser. Open one below, or create a new one underneath.</p>
+      <div id="existingList" class="mt-16"></div>
+    </section>
+
+    <!-- ===== CREATE TOURNAMENT ===== -->
+    <section id="createSection" class="panel" style="max-width:640px;margin:0 auto;">
+      <h2>Create a tournament</h2>
+      <p class="muted">Set the format once — teams, schedule and rules all follow from this.</p>
+
+      <div class="field mt-24">
+        <label for="tName">Tournament name</label>
+        <input type="text" id="tName" placeholder="e.g. Campus Premier League 2026">
+      </div>
+
+      <div class="field">
+        <label for="tFormat">Format</label>
+        <select id="tFormat" onchange="onFormatChange()">
+          <option value="league">League only (round robin)</option>
+          <option value="group_knockout">Group stage + Knockout (Qualifier/Eliminator/Final)</option>
+          <option value="knockout">Knockout only</option>
+        </select>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="tOvers">Overs per innings</label>
+          <input type="number" id="tOvers" value="20" min="1">
+        </div>
+        <div class="field">
+          <label for="tWickets">Wickets limit</label>
+          <input type="number" id="tWickets" value="10" min="1">
+        </div>
+      </div>
+
+      <div class="field" id="groupsField" style="display:none;">
+        <label for="tGroups">Number of groups</label>
+        <input type="number" id="tGroups" value="2" min="2">
+        <div class="hint">Teams are distributed evenly across groups. Top teams from each group advance to the knockout stage.</div>
+      </div>
+
+      <button class="btn btn-primary btn-block mt-16" onclick="createTournament()">Create Tournament</button>
+    </section>
+
+    <!-- ===== MANAGE TOURNAMENT ===== -->
+    <section id="manageSection" class="hidden">
+
+      <div class="panel flex-between mb-16">
+        <div>
+          <span class="eyebrow" id="formatLabel"></span>
+          <h2 id="tNameDisplay"></h2>
+        </div>
+        <div class="center">
+          <div class="hint">Share this code</div>
+          <div class="code-display" id="codeDisplay"></div>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button class="active" data-tab="teams" onclick="switchTab('teams')">Teams &amp; Players</button>
+        <button data-tab="schedule" onclick="switchTab('schedule')">Schedule</button>
+        <button data-tab="matches" onclick="switchTab('matches')">Matches</button>
+        <button data-tab="standings" onclick="switchTab('standings')">Standings</button>
+        <button data-tab="leaders" onclick="switchTab('leaders')">Leaderboard</button>
+      </div>
+
+      <!-- TEAMS TAB -->
+      <div id="tab-teams" class="tab-panel">
+        <div class="grid grid-2">
+          <div class="panel">
+            <h3>Add a team</h3>
+            <div class="field mt-16">
+              <label for="newTeamName">Team name</label>
+              <input type="text" id="newTeamName" placeholder="e.g. Ridgeway Falcons">
+            </div>
+            <button class="btn btn-secondary btn-block" onclick="addTeam()">Add Team</button>
+
+            <h3 class="mt-24">Teams (<span id="teamCount">0</span>)</h3>
+            <div id="teamListBox" class="mt-16"></div>
+          </div>
+
+          <div class="panel">
+            <h3>Add players to a team</h3>
+            <div class="field mt-16">
+              <label for="playerTeamSelect">Team</label>
+              <select id="playerTeamSelect" onchange="renderPlayersForSelectedTeam()"></select>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="newPlayerName">Player name</label>
+                <input type="text" id="newPlayerName" placeholder="e.g. R. Ahmed">
+              </div>
+              <div class="field" style="max-width:140px;">
+                <label for="newPlayerRole">Role</label>
+                <select id="newPlayerRole">
+                  <option>Batter</option><option>Bowler</option><option>All-rounder</option><option>Wicketkeeper</option>
+                </select>
+              </div>
+            </div>
+            <button class="btn btn-secondary btn-block" onclick="addPlayer()">Add Player</button>
+            <div id="playerListBox" class="mt-16"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SCHEDULE TAB -->
+      <div id="tab-schedule" class="tab-panel hidden">
+        <div class="panel" id="groupSettingsPanel" style="display:none;">
+          <h3>Group settings</h3>
+          <p class="hint">Change this any time before generating — it updates live as you add/remove teams.</p>
+          <div class="field-row mt-16" style="align-items:flex-end;max-width:340px;">
+            <div class="field" style="max-width:160px;">
+              <label for="editNumGroups">Number of groups</label>
+              <input type="number" id="editNumGroups" min="2" oninput="updateGroupPreview()">
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="updateNumGroups()">Save</button>
+          </div>
+          <p class="hint mt-8" id="groupPreviewHint"></p>
+        </div>
+        <div class="panel">
+          <div class="flex-between">
+            <h3>Generate schedule</h3>
+            <div class="flex gap-8">
+              <button class="btn btn-secondary btn-sm" onclick="generateSchedule(false)">Group-wise / League Order</button>
+              <button class="btn btn-secondary btn-sm" onclick="generateSchedule(true)">Randomize Draw</button>
+            </div>
+          </div>
+          <p class="hint">Needs at least 2 teams (group format needs at least 2 per group). Regenerating replaces the existing schedule.</p>
+        </div>
+        <div id="scheduleBox" class="mt-16"></div>
+      </div>
+
+      <!-- MATCHES TAB -->
+      <div id="tab-matches" class="tab-panel hidden">
+        <div id="matchesBox"></div>
+      </div>
+
+      <!-- STANDINGS TAB -->
+      <div id="tab-standings" class="tab-panel hidden">
+        <div class="panel">
+          <table>
+            <thead><tr><th>Team</th><th class="num">P</th><th class="num">W</th><th class="num">L</th><th class="num">T</th><th class="num">Pts</th></tr></thead>
+            <tbody id="standingsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- LEADERBOARD TAB -->
+      <div id="tab-leaders" class="tab-panel hidden">
+        <div class="grid grid-2">
+          <div class="panel">
+            <h3>Most Runs</h3>
+            <table><thead><tr><th>Player</th><th class="num">Runs</th><th class="num">SR</th></tr></thead><tbody id="runsLeaderBody"></tbody></table>
+          </div>
+          <div class="panel">
+            <h3>Most Wickets</h3>
+            <table><thead><tr><th>Player</th><th class="num">Wkts</th><th class="num">Econ</th></tr></thead><tbody id="wicketsLeaderBody"></tbody></table>
+          </div>
+        </div>
+      </div>
+
+    </section>
+  </div>
+</main>
+
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/scheduling.js"></script>
+<script src="js/stats.js"></script>
+<script>
+let currentCode = Utils.qs('code');
+
+function renderExistingTournaments() {
+  const all = DB.get('tournaments') || {};
+  const entries = Object.entries(all);
+  const section = document.getElementById('existingSection');
+  if (!entries.length) { section.classList.add('hidden'); return; }
+  section.classList.remove('hidden');
+
+  const formatLabels = { league: 'League', group_knockout: 'Group + Knockout', knockout: 'Knockout' };
+  document.getElementById('existingList').innerHTML = entries.map(([code, t]) => `
+    <div class="match-row" style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:var(--scoreboard-black);border:1px solid var(--panel-border);border-radius:var(--radius-sm);margin-bottom:8px;">
+      <div>
+        <b>${Utils.escapeHtml(t.meta.name)}</b>
+        <div class="hint">${formatLabels[t.meta.format] || t.meta.format} · code ${code} · ${Object.keys(t.teams || {}).length} team(s)</div>
+      </div>
+      <a class="btn btn-secondary btn-sm" href="tournament.html?code=${code}">Open</a>
+    </div>
+  `).join('');
+}
+
+function onFormatChange() {
+  document.getElementById('groupsField').style.display =
+    document.getElementById('tFormat').value === 'group_knockout' ? 'block' : 'none';
+}
+
+function createTournament() {
+  const name = document.getElementById('tName').value.trim();
+  const format = document.getElementById('tFormat').value;
+  const oversLimit = parseInt(document.getElementById('tOvers').value, 10);
+  const wicketsLimit = parseInt(document.getElementById('tWickets').value, 10);
+  const numGroups = format === 'group_knockout' ? parseInt(document.getElementById('tGroups').value, 10) : 1;
+
+  if (!name) return Utils.toast('Enter a tournament name', 'error');
+
+  const existing = DB.get('tournaments') || {};
+  const code = Utils.generateUniqueCode(existing);
+
+  DB.set(`tournaments/${code}/meta`, {
+    name, format, oversLimit, wicketsLimit, numGroups, createdAt: Date.now()
+  });
+  DB.set(`tournaments/${code}/teams`, {});
+  DB.set(`tournaments/${code}/matches`, {});
+  DB.set(`tournaments/${code}/players`, {});
+
+  currentCode = code;
+  window.history.replaceState({}, '', `tournament.html?code=${code}`);
+  Utils.toast(`Tournament created — code ${code}`, 'success');
+  loadTournament();
+}
+
+function loadTournament() {
+  if (!currentCode) return;
+  const t = DB.get(`tournaments/${currentCode}`);
+  if (!t) { Utils.toast('Tournament not found', 'error'); return; }
+
+  document.getElementById('createSection').classList.add('hidden');
+  document.getElementById('existingSection').classList.add('hidden');
+  document.getElementById('manageSection').classList.remove('hidden');
+  document.getElementById('codeBadge').textContent = currentCode;
+  document.getElementById('codeBadge').classList.remove('hidden');
+  document.getElementById('codeDisplay').textContent = currentCode;
+  document.getElementById('tNameDisplay').textContent = t.meta.name;
+  const formatLabels = { league: 'League (Round Robin)', group_knockout: 'Group Stage + Knockout', knockout: 'Knockout' };
+  document.getElementById('formatLabel').textContent = formatLabels[t.meta.format] || t.meta.format;
+
+  renderTeams(t);
+  renderGroupSettings(t);
+  renderSchedule(t);
+  renderMatches(t);
+  renderStandings(t);
+  renderLeaders(t);
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+  document.getElementById('tab-' + tab).classList.remove('hidden');
+}
+
+/* ---------- Teams & Players ---------- */
+function addTeam() {
+  const nameInput = document.getElementById('newTeamName');
+  const name = nameInput.value.trim();
+  if (!name) return Utils.toast('Enter a team name', 'error');
+  const id = Utils.generateId();
+  DB.set(`tournaments/${currentCode}/teams/${id}`, { id, name, players: [] });
+  nameInput.value = '';
+  loadTournament();
+}
+
+function removeTeam(teamId) {
+  DB.remove(`tournaments/${currentCode}/teams/${teamId}`);
+  loadTournament();
+}
+
+function renderTeams(t) {
+  const teams = Object.values(t.teams || {});
+  document.getElementById('teamCount').textContent = teams.length;
+
+  const listBox = document.getElementById('teamListBox');
+  listBox.innerHTML = teams.length ? '' : '<p class="muted">No teams yet.</p>';
+  teams.forEach(team => {
+    const row = document.createElement('div');
+    row.className = 'team-list-item';
+    row.innerHTML = `<span>${Utils.escapeHtml(team.name)} <span class="muted mono">(${(team.players||[]).length} players)</span></span>
+      <button class="btn-ghost" onclick="removeTeam('${team.id}')">Remove</button>`;
+    listBox.appendChild(row);
+  });
+
+  const select = document.getElementById('playerTeamSelect');
+  const prevVal = select.value;
+  select.innerHTML = teams.map(tm => `<option value="${tm.id}">${Utils.escapeHtml(tm.name)}</option>`).join('');
+  if (teams.some(tm => tm.id === prevVal)) select.value = prevVal;
+  renderPlayersForSelectedTeam();
+}
+
+function renderPlayersForSelectedTeam() {
+  const teamId = document.getElementById('playerTeamSelect').value;
+  const box = document.getElementById('playerListBox');
+  if (!teamId) { box.innerHTML = ''; return; }
+  const team = DB.get(`tournaments/${currentCode}/teams/${teamId}`);
+  if (!team) { box.innerHTML = ''; return; }
+  box.innerHTML = (team.players || []).map(p =>
+    `<span class="player-tag">${Utils.escapeHtml(p.name)} · ${p.role}
+      <button onclick="removePlayer('${teamId}','${p.id}')">×</button></span>`
+  ).join('') || '<p class="muted">No players yet.</p>';
+}
+
+function addPlayer() {
+  const teamId = document.getElementById('playerTeamSelect').value;
+  const name = document.getElementById('newPlayerName').value.trim();
+  const role = document.getElementById('newPlayerRole').value;
+  if (!teamId) return Utils.toast('Add a team first', 'error');
+  if (!name) return Utils.toast('Enter a player name', 'error');
+
+  const team = DB.get(`tournaments/${currentCode}/teams/${teamId}`);
+  const players = team.players || [];
+  players.push({ id: Utils.generateId(), name, role });
+  DB.set(`tournaments/${currentCode}/teams/${teamId}/players`, players);
+  document.getElementById('newPlayerName').value = '';
+  renderTeams(DB.get(`tournaments/${currentCode}`));
+  document.getElementById('playerTeamSelect').value = teamId;
+  renderPlayersForSelectedTeam();
+}
+
+function removePlayer(teamId, playerId) {
+  const team = DB.get(`tournaments/${currentCode}/teams/${teamId}`);
+  const players = (team.players || []).filter(p => p.id !== playerId);
+  DB.set(`tournaments/${currentCode}/teams/${teamId}/players`, players);
+  renderPlayersForSelectedTeam();
+  renderTeams(DB.get(`tournaments/${currentCode}`));
+}
+
+/* ---------- Group settings ---------- */
+function renderGroupSettings(t) {
+  const panel = document.getElementById('groupSettingsPanel');
+  if (t.meta.format !== 'group_knockout') { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  document.getElementById('editNumGroups').value = t.meta.numGroups;
+  updateGroupPreview();
+}
+
+function updateGroupPreview() {
+  const t = DB.get(`tournaments/${currentCode}`);
+  const numGroups = parseInt(document.getElementById('editNumGroups').value, 10);
+  const teamCount = Object.keys(t.teams || {}).length;
+  const hint = document.getElementById('groupPreviewHint');
+
+  if (!teamCount) { hint.innerHTML = 'Add teams first to see group sizes.'; return; }
+  if (!numGroups || numGroups < 2) { hint.innerHTML = '<span style="color:var(--boundary-red)">Need at least 2 groups.</span>'; return; }
+  if (numGroups > teamCount) {
+    hint.innerHTML = `<span style="color:var(--boundary-red)">Only ${teamCount} team(s) added — can't fill ${numGroups} groups yet. Add more teams or lower this number.</span>`;
+    return;
+  }
+  const base = Math.floor(teamCount / numGroups);
+  const remainder = teamCount % numGroups;
+  const sizes = Array.from({ length: numGroups }, (_, i) => base + (i < remainder ? 1 : 0));
+  const tooSmall = sizes.some(s => s < 2);
+  hint.innerHTML = `${teamCount} team(s) → ${numGroups} group(s) of ${sizes.join(' / ')} team(s).` +
+    (tooSmall ? ' <span style="color:var(--boundary-red)">At least one group would have fewer than 2 teams and can\'t play a round robin — reduce the group count or add more teams.</span>' : ' <span style="color:var(--success-green)">Looks good.</span>');
+}
+
+function updateNumGroups() {
+  const t = DB.get(`tournaments/${currentCode}`);
+  const numGroups = parseInt(document.getElementById('editNumGroups').value, 10);
+  const teamCount = Object.keys(t.teams || {}).length;
+  if (!numGroups || numGroups < 2) return Utils.toast('Need at least 2 groups', 'error');
+  if (numGroups > teamCount) return Utils.toast(`Only ${teamCount} team(s) added — can't split into ${numGroups} groups`, 'error');
+  DB.update(`tournaments/${currentCode}/meta`, { numGroups });
+  Utils.toast('Group count updated', 'success');
+  loadTournament();
+}
+
+/* ---------- Schedule ---------- */
+function generateSchedule(randomize) {
+  const t = DB.get(`tournaments/${currentCode}`);
+  const teams = Object.values(t.teams || {});
+  if (teams.length < 2) return Utils.toast('Add at least 2 teams first', 'error');
+  const teamIds = teams.map(tm => tm.id);
+
+  let rounds = [];
+  let groupsInfo = null;
+
+  if (t.meta.format === 'group_knockout') {
+    const numGroups = Math.max(2, t.meta.numGroups || 2);
+    if (numGroups > teamIds.length) {
+      return Utils.toast(`You have ${teamIds.length} team(s) but ${numGroups} groups set — add more teams or lower the group count in the Schedule tab first.`, 'error');
+    }
+    const ordered = randomize ? Utils.fisherYatesShuffle(teamIds) : teamIds;
+    const groups = Scheduling.splitIntoGroups(ordered, numGroups);
+    if (groups.some(g => g.length < 2)) {
+      return Utils.toast('At least one group would have fewer than 2 teams — reduce the group count or add more teams.', 'error');
+    }
+    groupsInfo = groups;
+    groups.forEach((groupTeamIds, gi) => {
+      const groupRounds = Scheduling.roundRobin(groupTeamIds);
+      groupRounds.forEach((matches, ri) => {
+        rounds.push({ label: `Group ${String.fromCharCode(65 + gi)} · Round ${ri + 1}`, matches, stage: 'group' });
+      });
+    });
+  } else if (t.meta.format === 'knockout') {
+    const ordered = randomize ? Utils.fisherYatesShuffle(teamIds) : teamIds;
+    const bracket = Scheduling.knockoutBracket(ordered);
+    rounds.push({ label: 'Round 1', matches: bracket.filter(m => m[0] && m[1]), stage: 'knockout' });
+  } else {
+    const roundsRaw = randomize ? Scheduling.randomSchedule(teamIds) : Scheduling.roundRobin(teamIds);
+    roundsRaw.forEach((matches, ri) => rounds.push({ label: `Round ${ri + 1}`, matches, stage: 'league' }));
+  }
+
+  // Write matches
+  const matches = {};
+  rounds.forEach(round => {
+    round.matches.forEach(([a, b]) => {
+      const id = Utils.generateId();
+      matches[id] = {
+        id, teamAId: a, teamBId: b, round: round.label, stage: round.stage,
+        status: 'scheduled', result: null
+      };
+    });
+  });
+  DB.set(`tournaments/${currentCode}/matches`, matches);
+  if (groupsInfo) DB.set(`tournaments/${currentCode}/groups`, groupsInfo);
+
+  Utils.toast('Schedule generated', 'success');
+  loadTournament();
+}
+
+function renderSchedule(t) {
+  const box = document.getElementById('scheduleBox');
+  const matches = Object.values(t.matches || {});
+  if (!matches.length) { box.innerHTML = '<p class="muted">No schedule yet — generate one above.</p>'; return; }
+
+  const byRound = {};
+  matches.forEach(m => { (byRound[m.round] = byRound[m.round] || []).push(m); });
+
+  box.innerHTML = Object.entries(byRound).map(([round, ms]) => `
+    <div class="round-block">
+      <div class="round-title">${Utils.escapeHtml(round)}</div>
+      ${ms.map(m => `
+        <div class="match-row">
+          <span>${teamName(t, m.teamAId)} <span class="vs muted"> vs </span> ${teamName(t, m.teamBId)}</span>
+          <span class="badge ${m.status === 'completed' ? 'badge-green' : 'muted'}">${m.status}</span>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+}
+
+function teamName(t, teamId) {
+  return Utils.escapeHtml((t.teams && t.teams[teamId] && t.teams[teamId].name) || 'TBD');
+}
+
+/* ---------- Matches tab ---------- */
+function renderMatches(t) {
+  const box = document.getElementById('matchesBox');
+  const matches = Object.values(t.matches || {});
+  if (!matches.length) { box.innerHTML = '<p class="muted">No matches yet.</p>'; return; }
+
+  box.innerHTML = matches.map(m => `
+    <div class="panel flex-between">
+      <div>
+        <div class="eyebrow">${Utils.escapeHtml(m.round)}</div>
+        <h3>${teamName(t, m.teamAId)} <span class="muted">vs</span> ${teamName(t, m.teamBId)}</h3>
+        ${m.result ? `<p class="mt-8">${Utils.escapeHtml(resultText(t, m))}</p>` : ''}
+      </div>
+      <div class="flex gap-8">
+        <span class="badge ${m.status === 'completed' ? 'badge-green' : (m.status === 'scheduled' ? 'muted' : 'badge-live')}">${m.status}</span>
+        <a class="btn btn-primary btn-sm" href="scorer.html?tournament=${currentCode}&match=${m.id}">
+          ${m.status === 'completed' ? 'View Scorecard' : (m.status === 'scheduled' ? 'Start Scoring' : 'Continue Scoring')}
+        </a>
+      </div>
+    </div>
+  `).join('');
+}
+
+function resultText(t, m) {
+  if (!m.result) return '';
+  if (m.result.winnerId === null) return 'Match tied';
+  return `${teamName(t, m.result.winnerId)} won by ${m.result.margin}`;
+}
+
+/* ---------- Standings ---------- */
+function renderStandings(t) {
+  const teams = Object.values(t.teams || {});
+  const table = {};
+  teams.forEach(tm => table[tm.id] = { name: tm.name, P: 0, W: 0, L: 0, T: 0, Pts: 0 });
+
+  Object.values(t.matches || {}).forEach(m => {
+    if (m.status !== 'completed' || !m.result) return;
+    if (table[m.teamAId]) table[m.teamAId].P++;
+    if (table[m.teamBId]) table[m.teamBId].P++;
+    if (m.result.winnerId === null) {
+      if (table[m.teamAId]) { table[m.teamAId].T++; table[m.teamAId].Pts += 1; }
+      if (table[m.teamBId]) { table[m.teamBId].T++; table[m.teamBId].Pts += 1; }
+    } else {
+      const loserId = m.result.winnerId === m.teamAId ? m.teamBId : m.teamAId;
+      if (table[m.result.winnerId]) { table[m.result.winnerId].W++; table[m.result.winnerId].Pts += 2; }
+      if (table[loserId]) table[loserId].L++;
+    }
+  });
+
+  const rows = Object.values(table).sort((a, b) => b.Pts - a.Pts);
+  document.getElementById('standingsBody').innerHTML = rows.map(r => `
+    <tr><td>${Utils.escapeHtml(r.name)}</td><td class="num">${r.P}</td><td class="num">${r.W}</td><td class="num">${r.L}</td><td class="num">${r.T}</td><td class="num">${r.Pts}</td></tr>
+  `).join('') || '<tr><td colspan="6" class="muted">No completed matches yet.</td></tr>';
+}
+
+/* ---------- Leaderboard ---------- */
+function renderLeaders(t) {
+  const players = Object.values(t.players || {});
+  const runsTop = Stats.topN(players, 'runs', 5, true);
+  const wicketsTop = Stats.topN(players, 'wickets', 5, true);
+
+  document.getElementById('runsLeaderBody').innerHTML = runsTop.map(p => `
+    <tr><td>${Utils.escapeHtml(p.name)}</td><td class="num">${p.runs}</td><td class="num">${Stats.strikeRate(p)}</td></tr>
+  `).join('') || '<tr><td colspan="3" class="muted">No data yet.</td></tr>';
+
+  document.getElementById('wicketsLeaderBody').innerHTML = wicketsTop.map(p => `
+    <tr><td>${Utils.escapeHtml(p.name)}</td><td class="num">${p.wickets}</td><td class="num">${Stats.economy(p)}</td></tr>
+  `).join('') || '<tr><td colspan="3" class="muted">No data yet.</td></tr>';
+}
+
+// init
+// If you're on the Firebase-backed db.js, DB.ready() resolves once the first
+// snapshot arrives; on the localStorage version it resolves immediately.
+function init() {
+  if (currentCode) loadTournament();
+  else renderExistingTournaments();
+}
+if (typeof DB.ready === 'function') DB.ready().then(init);
+else init();
+
+</script>
+</body>
+</html>

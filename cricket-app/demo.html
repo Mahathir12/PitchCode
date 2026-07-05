@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Demo Data — PitchCode</title>
+<link rel="stylesheet" href="css/theme.css">
+<style>
+  .demo-box { max-width: 620px; margin: 40px auto; }
+  .code-row { display:flex; align-items:center; justify-content:space-between; padding:14px 0; border-bottom:1px solid var(--panel-border); }
+  .link-list { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html" class="brand"><span class="mark">PitchCode</span><span class="tag">Demo Data</span></a>
+</div>
+
+<main><div class="wrap">
+  <section class="panel demo-box">
+    <h2>Try it with sample data</h2>
+    <p class="mt-16">This loads a realistic demo tournament (4 teams, a fully simulated completed match with stats, one match still scheduled) and a demo auction room (categories, players, purses, a few sales already done) — so you can see how everything looks once it's actually in use, without clicking through every setup step yourself.</p>
+
+    <div class="flex gap-8 mt-24">
+      <button class="btn btn-primary" onclick="runLoad()">Load Demo Data</button>
+      <button class="btn btn-ghost" onclick="runClear()">Clear Demo Data</button>
+    </div>
+
+    <div id="resultBox" class="mt-24 hidden">
+      <div class="code-row">
+        <div>
+          <div class="eyebrow">Demo Tournament</div>
+          <div class="code-display mt-8" id="tCode"></div>
+        </div>
+        <div class="link-list">
+          <a class="btn btn-secondary btn-sm" href="" id="linkTournament">Organizer View</a>
+          <a class="btn btn-secondary btn-sm" href="" id="linkViewerT">Public Viewer</a>
+        </div>
+      </div>
+      <div class="code-row">
+        <div>
+          <div class="eyebrow">Demo Auction Room</div>
+          <div class="code-display mt-8" id="aCode"></div>
+        </div>
+        <div class="link-list">
+          <a class="btn btn-secondary btn-sm" href="" id="linkBidder">Auction Head View</a>
+          <a class="btn btn-secondary btn-sm" href="" id="linkOwner">Owner View</a>
+          <a class="btn btn-secondary btn-sm" href="" id="linkViewerA">Public Viewer</a>
+        </div>
+      </div>
+      <p class="hint mt-16">Note: the Owner view will ask you to register a team the first time — that's expected, three demo teams already exist and yours will just be a fourth alongside them.</p>
+    </div>
+  </section>
+</div></main>
+
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/scheduling.js"></script>
+<script src="js/scoring-engine.js"></script>
+<script src="js/stats.js"></script>
+<script src="js/auction-engine.js"></script>
+<script src="js/demo-data.js"></script>
+<script>
+function runLoad() {
+  const { tournamentCode, auctionCode } = DemoData.loadAll();
+  document.getElementById('resultBox').classList.remove('hidden');
+  document.getElementById('tCode').textContent = tournamentCode;
+  document.getElementById('aCode').textContent = auctionCode;
+  document.getElementById('linkTournament').href = `tournament.html?code=${tournamentCode}`;
+  document.getElementById('linkViewerT').href = `viewer.html?code=${tournamentCode}&type=tournament`;
+  document.getElementById('linkBidder').href = `bidder.html?code=${auctionCode}`;
+  document.getElementById('linkOwner').href = `owner.html?code=${auctionCode}`;
+  document.getElementById('linkViewerA').href = `viewer.html?code=${auctionCode}&type=auction`;
+  Utils.toast('Demo data loaded', 'success');
+}
+
+function runClear() {
+  DemoData.clearAll();
+  document.getElementById('resultBox').classList.add('hidden');
+  Utils.toast('Demo data cleared', 'info');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Owner — PitchCode</title>
+<link rel="stylesheet" href="css/theme.css">
+<style>
+  .bid-btns { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+  .team-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 14px; }
+  .my-purse { font-family: var(--font-display); font-size: 2.2rem; color: var(--led-amber); }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html" class="brand"><span class="mark">PitchCode</span><span class="tag">Owner</span></a>
+  <span class="badge badge-amber" id="codeBadge"></span>
+</div>
+
+<main><div class="wrap">
+
+  <!-- REGISTER TEAM -->
+  <div id="registerBox" class="panel hidden" style="max-width:480px;margin:0 auto;">
+    <h2>Register your team</h2>
+    <p class="muted">You'll be assigned the default purse set by the auction head.</p>
+    <div class="field mt-16"><label>Team name</label><input type="text" id="regTeamName"></div>
+    <div class="field"><label>Your name</label><input type="text" id="regOwnerName"></div>
+    <button class="btn btn-primary btn-block" onclick="registerTeam()">Join Auction</button>
+  </div>
+
+  <!-- MAIN DASHBOARD -->
+  <div id="dashBox" class="hidden">
+    <div class="panel flex-between">
+      <div>
+        <span class="eyebrow" id="myTeamNameLbl"></span>
+        <div class="my-purse" id="myPurse"></div>
+      </div>
+      <div id="mySquadCount" class="muted"></div>
+    </div>
+
+    <div class="panel mt-16" id="currentPlayerBox"></div>
+
+    <div class="panel mt-16">
+      <h3>All teams</h3>
+      <div class="team-grid mt-16" id="allTeamsGrid"></div>
+    </div>
+  </div>
+
+</div></main>
+
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/auction-engine.js"></script>
+<script>
+const code = Utils.qs('code');
+document.getElementById('codeBadge').textContent = code;
+let myTeamId = null;
+
+function room() { return DB.get(`auctionRooms/${code}`); }
+
+function init() {
+  const r = room();
+  if (!r) { Utils.toast('Auction room not found', 'error'); return; }
+
+  const session = Utils.getSession();
+  if (session && session.roomCode === code && session.role === 'owner' && r.teams[session.teamId]) {
+    myTeamId = session.teamId;
+    showDashboard();
+  } else {
+    document.getElementById('registerBox').classList.remove('hidden');
+  }
+}
+
+function registerTeam() {
+  const name = document.getElementById('regTeamName').value.trim();
+  const ownerName = document.getElementById('regOwnerName').value.trim();
+  if (!name) return Utils.toast('Enter a team name', 'error');
+  const r = room();
+  const id = Utils.generateId();
+  const purse = r.meta.defaultPurse;
+  DB.set(`auctionRooms/${code}/teams/${id}`, { id, name, ownerName, totalPurse: purse, remainingPurse: purse, squad: [] });
+  myTeamId = id;
+  Utils.setSession({ role: 'owner', roomCode: code, teamId: id });
+  document.getElementById('registerBox').classList.add('hidden');
+  showDashboard();
+}
+
+function showDashboard() {
+  document.getElementById('dashBox').classList.remove('hidden');
+  render();
+}
+
+function render() {
+  const r = room();
+  if (!r) return;
+  const myTeam = r.teams[myTeamId];
+  if (!myTeam) return;
+
+  document.getElementById('myTeamNameLbl').textContent = myTeam.name;
+  document.getElementById('myPurse').textContent = Utils.formatCurrency(myTeam.remainingPurse) + ' remaining';
+  document.getElementById('mySquadCount').textContent = `${(myTeam.squad||[]).length} players signed`;
+
+  renderCurrentPlayer(r, myTeam);
+  renderAllTeams(r);
+}
+
+function renderCurrentPlayer(r, myTeam) {
+  const box = document.getElementById('currentPlayerBox');
+  const photoHtml = (p) => p.photo ? `<img src="${p.photo}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid var(--led-amber-dim);margin-bottom:8px;">` : '';
+
+  if (r.liveBid) {
+    const player = r.players[r.liveBid.playerId];
+    if (r.liveBid.sealedMode) {
+      const mySealed = (r.sealedBids || {})[myTeam.id];
+      const floor = r.liveBid.sealedFloor != null ? r.liveBid.sealedFloor : player.basePrice;
+      const strict = r.liveBid.sealedFloor != null;
+      box.innerHTML = `
+        ${photoHtml(player)}
+        <span class="eyebrow">${Utils.escapeHtml(player.category)} · Hidden Bid</span>
+        <h2>${Utils.escapeHtml(player.name)}</h2>
+        <p class="muted">${strict ? `Must be higher than the current highest bid of ${Utils.formatCurrency(floor)}` : `Base price ${Utils.formatCurrency(floor)}`} — write your best sealed offer below.</p>
+        <div class="field-row mt-16" style="max-width:360px;">
+          <div class="field"><input type="number" id="sealedAmount" placeholder="Your bid" value="${mySealed || ''}"></div>
+          <button class="btn btn-primary" onclick="submitSealedBid('${player.id}')">Submit</button>
+        </div>
+        ${mySealed ? `<p class="hint">Submitted: ${Utils.formatCurrency(mySealed)}</p>` : ''}`;
+      return;
+    }
+
+    const leading = r.liveBid.currentBidder === myTeam.id;
+    const inc = r.meta.bidIncrement || 100000;
+    const steps = [inc, inc * 2, inc * 5];
+    box.innerHTML = `
+      ${photoHtml(player)}
+      <span class="eyebrow">${Utils.escapeHtml(player.category)} · Live Bidding</span>
+      <h2>${Utils.escapeHtml(player.name)}</h2>
+      <div class="led-board mt-16">
+        <div class="led-score">${Utils.formatCurrency(r.liveBid.currentBid)}</div>
+        <div class="led-meta">${leading ? '<b style="color:var(--success-green)">You are leading</b>' : (r.liveBid.currentBidder ? 'Leading: ' + Utils.escapeHtml(r.teams[r.liveBid.currentBidder].name) : 'No bids yet')}</div>
+      </div>
+      <div class="bid-btns">
+        ${steps.map(s => `<button class="btn btn-secondary" onclick="placeBid(${s})">+ ${Utils.formatCurrency(s)}</button>`).join('')}
+      </div>
+      <p class="hint mt-8">Increment set by the auction head: ${Utils.formatCurrency(inc)}</p>`;
+    return;
+  }
+
+  // hidden-category bidding: check if any hidden category has unsold players needing my bid
+  const hiddenCats = Object.keys(r.meta.hiddenCategories || {});
+  if (hiddenCats.length) {
+    const unsoldHidden = Object.values(r.players).filter(p => hiddenCats.includes(p.category) && p.status === 'unsold');
+    if (unsoldHidden.length) {
+      box.innerHTML = `
+        <span class="eyebrow">Hidden Category Bidding</span>
+        <h3>Submit sealed offers for hidden-category players</h3>
+        <table class="mt-16">
+          <thead><tr><th></th><th>Player</th><th>Category</th><th>Your bid</th><th></th></tr></thead>
+          <tbody>
+            ${unsoldHidden.map(p => {
+              const catBids = (r.categoryBids && r.categoryBids[p.category]) || {};
+              const mine = (catBids[p.id] || {})[myTeam.id] || '';
+              return `<tr>
+                <td>${p.photo ? `<img src="${p.photo}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">` : ''}</td>
+                <td>${Utils.escapeHtml(p.name)}</td>
+                <td class="muted">${Utils.escapeHtml(p.category)}</td>
+                <td><input type="number" style="width:110px;" id="catbid_${p.id}" value="${mine}" placeholder="base ${p.basePrice}"></td>
+                <td><button class="btn btn-secondary btn-sm" onclick="submitCategoryBid('${p.category}','${p.id}')">Submit</button></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`;
+      return;
+    }
+  }
+
+  box.innerHTML = '<h3>No player currently up for bidding.</h3><p class="muted">Waiting on the auction head to start the next player.</p>';
+}
+
+function placeBid(step) {
+  const r = room();
+  const myTeam = r.teams[myTeamId];
+  const newAmount = r.liveBid.currentBid + step;
+  try {
+    const updated = Auction.placeBid(r.liveBid, myTeamId, newAmount, myTeam.remainingPurse);
+    DB.set(`auctionRooms/${code}/liveBid`, updated);
+  } catch (e) {
+    Utils.toast(e.message, 'error');
+  }
+}
+
+function submitSealedBid(playerId) {
+  const amount = parseInt(document.getElementById('sealedAmount').value, 10);
+  if (!amount) return Utils.toast('Enter an amount', 'error');
+  const r = room();
+  const player = r.players[playerId];
+  const floor = r.liveBid.sealedFloor != null ? r.liveBid.sealedFloor : player.basePrice;
+  const strict = r.liveBid.sealedFloor != null;
+  if (strict ? amount <= floor : amount < floor) {
+    return Utils.toast(`Your bid must be ${strict ? 'higher than' : 'at least'} ${Utils.formatCurrency(floor)}`, 'error');
+  }
+  if (amount > r.teams[myTeamId].remainingPurse) return Utils.toast('Amount exceeds your remaining purse', 'error');
+  const sealed = r.sealedBids || {};
+  sealed[myTeamId] = amount;
+  DB.set(`auctionRooms/${code}/sealedBids`, sealed);
+  Utils.toast('Sealed bid submitted', 'success');
+}
+
+function submitCategoryBid(category, playerId) {
+  const amount = parseInt(document.getElementById(`catbid_${playerId}`).value, 10);
+  if (!amount) return Utils.toast('Enter an amount', 'error');
+  const r = room();
+  if (amount > r.teams[myTeamId].remainingPurse) return Utils.toast('Amount exceeds your remaining purse', 'error');
+  const categoryBids = r.categoryBids || {};
+  categoryBids[category] = categoryBids[category] || {};
+  categoryBids[category][playerId] = categoryBids[category][playerId] || {};
+  categoryBids[category][playerId][myTeamId] = amount;
+  DB.set(`auctionRooms/${code}/categoryBids`, categoryBids);
+  Utils.toast('Bid submitted', 'success');
+}
+
+function renderAllTeams(r) {
+  const teams = Object.values(r.teams || {});
+  document.getElementById('allTeamsGrid').innerHTML = teams.map(t => {
+    const pct = Math.round(100 * (t.totalPurse - t.remainingPurse) / t.totalPurse);
+    return `<div class="team-card">
+      <div class="flex-between"><b>${Utils.escapeHtml(t.name)}</b>${t.id === myTeamId ? '<span class="badge badge-amber">you</span>' : ''}</div>
+      <div class="mono mt-8">${Utils.formatCurrency(t.remainingPurse)} left</div>
+      <div class="purse-bar"><div style="width:${pct}%"></div></div>
+      <div class="hint mt-8">${(t.squad||[]).length} players</div>
+    </div>`;
+  }).join('');
+}
+
+DB.on(`auctionRooms/${code}`, () => { if (myTeamId) render(); });
+init();
+</script>
+</body>
+</html>

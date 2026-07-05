@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Set Up Auction — PitchCode</title>
+<link rel="stylesheet" href="css/theme.css">
+<style>
+  .cat-row { display:flex; gap:8px; align-items:center; padding:8px 0; border-bottom:1px solid var(--panel-border); }
+  .cat-row input[type="text"] { flex: 2; }
+  .cat-row input[type="number"] { flex: 1; }
+  .player-row { display:flex; gap:8px; align-items:center; padding:8px 0; border-bottom:1px solid var(--panel-border); font-size:0.9rem; }
+  .player-row img.thumb { width:28px; height:28px; border-radius:50%; object-fit:cover; border:1px solid var(--panel-border); }
+  .thumb-placeholder { width:28px; height:28px; border-radius:50%; background:var(--scoreboard-black); border:1px solid var(--panel-border); display:inline-flex; align-items:center; justify-content:center; font-size:0.7rem; color:var(--floodlight-dim); }
+  .import-tabs { display:flex; gap:8px; margin-bottom:14px; }
+  .import-tabs button.active { background: var(--led-amber); color: var(--scoreboard-black); border-color:transparent; }
+  textarea#pasteArea { min-height:120px; font-family: var(--font-mono); font-size:0.82rem; }
+  .preview-table select, .preview-table input { padding:6px 8px; font-size:0.82rem; }
+  .match-thumb-row { display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid var(--panel-border); font-size:0.85rem; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html" class="brand"><span class="mark">PitchCode</span><span class="tag">Auction Setup</span></a>
+</div>
+
+<main><div class="wrap">
+  <section class="panel" style="max-width:760px;margin:0 auto;">
+    <h2>Set up your auction</h2>
+    <p class="muted">Define categories, base prices, purses and the player pool. Owners join afterward using the room code.</p>
+
+    <div class="field mt-24">
+      <label for="roomName">Auction name</label>
+      <input type="text" id="roomName" placeholder="e.g. PitchCode Season 3 Auction">
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label for="defaultPurse">Default purse per team</label>
+        <input type="number" id="defaultPurse" value="10000000" step="100000">
+      </div>
+      <div class="field">
+        <label for="bidIncrement">Bid increment (required)</label>
+        <input type="number" id="bidIncrement" value="100000" step="10000" required>
+      </div>
+    </div>
+    <div class="hint" style="margin-top:-8px;">Amounts are shown formatted as Lakh/Crore, e.g. 10000000 = 1 Cr. The increment is the minimum step owners raise a live bid by — the auction head can change it later from the bid room.</div>
+
+    <h3 class="mt-24">Categories</h3>
+    <div id="categoryList"></div>
+    <div class="cat-row mt-16">
+      <input type="text" id="catName" placeholder="Category name (e.g. Marquee)">
+      <input type="number" id="catBase" placeholder="Base price" value="200000">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:400;white-space:nowrap;">
+        <input type="checkbox" id="catHidden" style="width:auto;"> Fully hidden
+      </label>
+      <button class="btn btn-secondary btn-sm" onclick="addCategory()">Add</button>
+    </div>
+
+    <h3 class="mt-24">Players</h3>
+
+    <div class="panel" style="background:var(--scoreboard-black);">
+      <div class="import-tabs">
+        <button class="btn btn-secondary btn-sm active" data-mode="single" onclick="switchImportMode('single')">Add one by one</button>
+        <button class="btn btn-secondary btn-sm" data-mode="bulk" onclick="switchImportMode('bulk')">Bulk import (paste / Excel)</button>
+        <button class="btn btn-secondary btn-sm" data-mode="images" onclick="switchImportMode('images')">Player photos</button>
+      </div>
+
+      <!-- SINGLE ADD -->
+      <div id="mode-single">
+        <div class="cat-row">
+          <input type="text" id="playerName" placeholder="Player name">
+          <select id="playerRole" style="flex:1;">
+            <option>Batter</option><option>Bowler</option><option>All-rounder</option><option>Wicketkeeper</option>
+          </select>
+          <select id="playerCategory" style="flex:1;"></select>
+          <button class="btn btn-secondary btn-sm" onclick="addPlayer()">Add</button>
+        </div>
+      </div>
+
+      <!-- BULK IMPORT -->
+      <div id="mode-bulk" class="hidden">
+        <p class="hint">Paste rows copied from a spreadsheet (name, role, category — category optional), or upload the Excel/CSV file you downloaded from your Google Form responses.</p>
+        <textarea id="pasteArea" class="mt-8" placeholder="Rahim Ahmed, Batter, Marquee&#10;Karim Uddin, Bowler&#10;Salma Khatun, All-rounder, Category A"></textarea>
+        <div class="flex gap-8 mt-8">
+          <button class="btn btn-secondary btn-sm" onclick="parsePastedText()">Parse Pasted Text</button>
+          <span class="muted">or</span>
+          <input type="file" id="excelFile" accept=".csv,.xlsx,.xls" onchange="parseExcelFile()">
+        </div>
+        <div id="importPreviewBox" class="mt-16"></div>
+      </div>
+
+      <!-- IMAGES -->
+      <div id="mode-images" class="hidden">
+        <p class="hint">Select multiple photos at once (e.g. the whole folder from Drive). Files are matched to players automatically by filename — "rahim_ahmed.jpg" matches "Rahim Ahmed". Fix any leftovers manually below. Images are compressed and stored in this browser.</p>
+        <input type="file" id="imageFiles" accept="image/*" multiple class="mt-8" onchange="handleImageFiles()">
+        <div id="imageMatchBox" class="mt-16"></div>
+      </div>
+    </div>
+
+    <h3 class="mt-24">Player pool (<span id="playerCount">0</span>)</h3>
+    <div id="playerList"></div>
+
+    <button class="btn btn-primary btn-block mt-24" onclick="createRoom()">Create Auction Room</button>
+  </section>
+</div></main>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script>
+let categories = []; // { name, basePrice, hidden }
+let players = [];    // { id, name, role, category, photo? }
+let importRows = []; // pending bulk-import preview rows: { name, role, category }
+
+/* ---------- Import mode switching ---------- */
+function switchImportMode(mode) {
+  document.querySelectorAll('.import-tabs button').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  ['single', 'bulk', 'images'].forEach(m => document.getElementById('mode-' + m).classList.toggle('hidden', m !== mode));
+}
+
+/* ---------- Categories ---------- */
+function addCategory() {
+  const name = document.getElementById('catName').value.trim();
+  const basePrice = parseInt(document.getElementById('catBase').value, 10) || 0;
+  const hidden = document.getElementById('catHidden').checked;
+  if (!name) return Utils.toast('Enter a category name', 'error');
+  categories.push({ name, basePrice, hidden });
+  document.getElementById('catName').value = '';
+  document.getElementById('catHidden').checked = false;
+  renderCategories();
+}
+function removeCategory(i) { categories.splice(i, 1); renderCategories(); }
+
+function renderCategories() {
+  document.getElementById('categoryList').innerHTML = categories.map((c, i) => `
+    <div class="cat-row">
+      <span style="flex:2;">${Utils.escapeHtml(c.name)} ${c.hidden ? '<span class="badge badge-amber">hidden</span>' : ''}</span>
+      <span style="flex:1;" class="mono">${Utils.formatCurrency(c.basePrice)}</span>
+      <button class="btn-ghost" onclick="removeCategory(${i})">Remove</button>
+    </div>`).join('') || '<p class="muted">No categories yet.</p>';
+
+  const sel = document.getElementById('playerCategory');
+  sel.innerHTML = categories.map(c => `<option value="${Utils.escapeHtml(c.name)}">${Utils.escapeHtml(c.name)}</option>`).join('');
+}
+
+/* ---------- Single player add ---------- */
+function addPlayer() {
+  const name = document.getElementById('playerName').value.trim();
+  const role = document.getElementById('playerRole').value;
+  const category = document.getElementById('playerCategory').value;
+  if (!name) return Utils.toast('Enter a player name', 'error');
+  if (!category) return Utils.toast('Add a category first', 'error');
+  players.push({ id: Utils.generateId(), name, role, category });
+  document.getElementById('playerName').value = '';
+  renderPlayers();
+}
+function removePlayer(i) { players.splice(i, 1); renderPlayers(); }
+
+function renderPlayers() {
+  document.getElementById('playerCount').textContent = players.length;
+  document.getElementById('playerList').innerHTML = players.map((p, i) => `
+    <div class="player-row">
+      ${p.photo ? `<img class="thumb" src="${p.photo}">` : `<span class="thumb-placeholder">?</span>`}
+      <span style="flex:2;">${Utils.escapeHtml(p.name)}</span>
+      <span style="flex:1;" class="muted">${p.role}</span>
+      <span style="flex:1;" class="badge">${Utils.escapeHtml(p.category || 'none')}</span>
+      <button class="btn-ghost" onclick="removePlayer(${i})">Remove</button>
+    </div>`).join('') || '<p class="muted">No players yet.</p>';
+}
+
+/* ---------- Bulk import: parsing ---------- */
+function normalizeRole(raw) {
+  const r = (raw || '').toLowerCase();
+  if (r.includes('bowl')) return 'Bowler';
+  if (r.includes('all')) return 'All-rounder';
+  if (r.includes('keep') || r === 'wk') return 'Wicketkeeper';
+  return 'Batter';
+}
+
+function rowsToImportRows(rows) {
+  if (!rows.length) return [];
+  const firstLower = rows[0].map(c => String(c || '').trim().toLowerCase());
+  const headerKeywords = ['name', 'role', 'position', 'category', 'cat'];
+  const looksLikeHeader = firstLower.some(c => headerKeywords.some(kw => c.includes(kw)));
+
+  let nameCol = 0, roleCol = 1, catCol = 2, dataRows = rows;
+  if (looksLikeHeader) {
+    const findCol = (kw) => firstLower.findIndex(c => c.includes(kw));
+    nameCol = findCol('name'); if (nameCol < 0) nameCol = 0;
+    roleCol = firstLower.findIndex(c => c.includes('role') || c.includes('position'));
+    catCol = firstLower.findIndex(c => c.includes('cat'));
+    dataRows = rows.slice(1);
+  }
+
+  return dataRows
+    .map(r => ({
+      name: String(r[nameCol] || '').trim(),
+      role: normalizeRole(roleCol >= 0 ? r[roleCol] : ''),
+      category: catCol >= 0 ? String(r[catCol] || '').trim() : ''
+    }))
+    .filter(p => p.name);
+}
+
+function parsePastedText() {
+  const text = document.getElementById('pasteArea').value;
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return Utils.toast('Paste some rows first', 'error');
+  const delim = lines[0].includes('\t') ? '\t' : ',';
+  const rows = lines.map(l => l.split(delim).map(c => c.trim()));
+  importRows = rowsToImportRows(rows);
+  renderImportPreview();
+}
+
+function parseExcelFile() {
+  const file = document.getElementById('excelFile').files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 }).filter(r => r.length);
+      importRows = rowsToImportRows(rows);
+      renderImportPreview();
+      Utils.toast(`Parsed ${importRows.length} row(s) from ${file.name}`, 'success');
+    } catch (err) {
+      console.error(err);
+      Utils.toast('Could not read that file — try exporting as .xlsx or .csv', 'error');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function renderImportPreview() {
+  const box = document.getElementById('importPreviewBox');
+  if (!importRows.length) { box.innerHTML = '<p class="muted">Nothing parsed yet.</p>'; return; }
+
+  const catOptions = categories.map(c => `<option value="${Utils.escapeHtml(c.name)}">${Utils.escapeHtml(c.name)}</option>`).join('');
+  box.innerHTML = `
+    <table class="preview-table">
+      <thead><tr><th>Name</th><th>Role</th><th>Category</th><th></th></tr></thead>
+      <tbody>
+        ${importRows.map((r, i) => `
+          <tr>
+            <td>${Utils.escapeHtml(r.name)}</td>
+            <td>
+              <select onchange="importRows[${i}].role=this.value">
+                ${['Batter', 'Bowler', 'All-rounder', 'Wicketkeeper'].map(role => `<option value="${role}" ${r.role === role ? 'selected' : ''}>${role}</option>`).join('')}
+              </select>
+            </td>
+            <td>
+              <select onchange="importRows[${i}].category=this.value">
+                <option value="">— choose category —</option>
+                ${catOptions}
+              </select>
+            </td>
+            <td><button class="btn-ghost btn-sm" onclick="importRows.splice(${i},1);renderImportPreview();">✕</button></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="flex gap-8 mt-16">
+      <select id="bulkAssignCategory" style="max-width:220px;">
+        <option value="">Bulk-assign category to all rows above...</option>
+        ${catOptions}
+      </select>
+      <button class="btn btn-secondary btn-sm" onclick="bulkAssignCategory()">Apply to All</button>
+    </div>
+    <button class="btn btn-primary mt-16" onclick="confirmImport()">Add ${importRows.length} Player(s) to Pool</button>
+  `;
+  // re-select the category dropdowns to reflect current state after re-render
+  setTimeout(() => {
+    document.querySelectorAll('.preview-table select[onchange*="category"]').forEach((sel, i) => { sel.value = importRows[i].category || ''; });
+  }, 0);
+}
+
+function bulkAssignCategory() {
+  const cat = document.getElementById('bulkAssignCategory').value;
+  if (!cat) return;
+  importRows.forEach(r => r.category = cat);
+  renderImportPreview();
+}
+
+function confirmImport() {
+  if (!categories.length) return Utils.toast('Add at least one category first', 'error');
+  const missing = importRows.filter(r => !r.category);
+  if (missing.length) return Utils.toast(`${missing.length} row(s) still need a category selected`, 'error');
+
+  importRows.forEach(r => players.push({ id: Utils.generateId(), name: r.name, role: r.role, category: r.category }));
+  importRows = [];
+  document.getElementById('pasteArea').value = '';
+  document.getElementById('excelFile').value = '';
+  renderImportPreview();
+  renderPlayers();
+  Utils.toast('Players added to the pool', 'success');
+}
+
+/* ---------- Bulk images ---------- */
+let pendingImageFiles = [];
+let imageMatches = [];
+
+function normalizeForMatch(s) {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function handleImageFiles() {
+  pendingImageFiles = Array.from(document.getElementById('imageFiles').files);
+  renderImageMatches();
+}
+
+function autoMatchImages() {
+  const usedPlayers = new Set();
+  return pendingImageFiles.map(file => {
+    const base = file.name.replace(/\.[^.]+$/, '');
+    const normBase = normalizeForMatch(base);
+    let match = players.find(p => !usedPlayers.has(p.id) && normalizeForMatch(p.name) === normBase);
+    if (!match) {
+      match = players.find(p => !usedPlayers.has(p.id) &&
+        normBase.length > 2 &&
+        (normalizeForMatch(p.name).includes(normBase) || normBase.includes(normalizeForMatch(p.name))));
+    }
+    if (match) usedPlayers.add(match.id);
+    return { file, playerId: match ? match.id : '' };
+  });
+}
+
+function renderImageMatches() {
+  if (!players.length) {
+    document.getElementById('imageMatchBox').innerHTML = '<p class="muted">Add players first, then upload photos to match against them.</p>';
+    return;
+  }
+  imageMatches = autoMatchImages();
+  const playerOptions = (currentId) => `<option value="">— unmatched —</option>` +
+    players.map(p => `<option value="${p.id}" ${p.id === currentId ? 'selected' : ''}>${Utils.escapeHtml(p.name)}</option>`).join('');
+
+  const box = document.getElementById('imageMatchBox');
+  box.innerHTML = imageMatches.map((m, i) => `
+    <div class="match-thumb-row">
+      <img src="${URL.createObjectURL(m.file)}" style="width:40px;height:40px;object-fit:cover;border-radius:6px;border:1px solid var(--panel-border);">
+      <span class="muted" style="flex:1;">${Utils.escapeHtml(m.file.name)}</span>
+      <select onchange="imageMatches[${i}].playerId=this.value" style="flex:1;">${playerOptions(m.playerId)}</select>
+    </div>
+  `).join('') + `<button class="btn btn-primary btn-sm mt-16" onclick="confirmImageMatches()">Attach Matched Photos</button>`;
+}
+
+function resizeImageFile(file, maxDim = 240, quality = 0.75) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > h && w > maxDim) { h = Math.round(h * (maxDim / w)); w = maxDim; }
+        else if (h >= w && h > maxDim) { w = Math.round(w * (maxDim / h)); h = maxDim; }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function confirmImageMatches() {
+  const matched = imageMatches.filter(m => m.playerId);
+  if (!matched.length) return Utils.toast('No photos matched to players yet', 'error');
+  Utils.toast(`Processing ${matched.length} photo(s)...`, 'info');
+  for (const m of matched) {
+    try {
+      const dataUrl = await resizeImageFile(m.file);
+      const player = players.find(p => p.id === m.playerId);
+      if (player) player.photo = dataUrl;
+    } catch (e) {
+      console.error('Image processing failed for', m.file.name, e);
+    }
+  }
+  renderPlayers();
+  Utils.toast('Photos attached', 'success');
+  document.getElementById('imageMatchBox').innerHTML = '<p class="muted">Done. Upload more files to match additional players.</p>';
+}
+
+/* ---------- Create room ---------- */
+function createRoom() {
+  const name = document.getElementById('roomName').value.trim();
+  const defaultPurse = parseInt(document.getElementById('defaultPurse').value, 10);
+  const bidIncrement = parseInt(document.getElementById('bidIncrement').value, 10);
+  if (!name) return Utils.toast('Enter an auction name', 'error');
+  if (!bidIncrement || bidIncrement <= 0) return Utils.toast('Bid increment is required and must be greater than 0', 'error');
+  if (!categories.length) return Utils.toast('Add at least one category', 'error');
+  if (!players.length) return Utils.toast('Add at least one player', 'error');
+  const uncategorized = players.filter(p => !p.category);
+  if (uncategorized.length) return Utils.toast(`${uncategorized.length} player(s) still have no category assigned`, 'error');
+
+  const existing = DB.get('auctionRooms') || {};
+  const code = Utils.generateUniqueCode(existing);
+
+  const playersObj = {};
+  players.forEach(p => {
+    const cat = categories.find(c => c.name === p.category);
+    playersObj[p.id] = { ...p, basePrice: cat ? cat.basePrice : 0, status: 'unsold', soldTo: null, soldPrice: null };
+  });
+
+  DB.set(`auctionRooms/${code}/meta`, {
+    name, defaultPurse, bidIncrement, createdAt: Date.now(),
+    categoryOrder: categories.map(c => c.name),
+    hiddenCategories: Object.fromEntries(categories.filter(c => c.hidden).map(c => [c.name, true])),
+    categoryBasePrices: Object.fromEntries(categories.map(c => [c.name, c.basePrice])),
+    bidderKey: Utils.generateId()
+  });
+  DB.set(`auctionRooms/${code}/players`, playersObj);
+  DB.set(`auctionRooms/${code}/teams`, {});
+  DB.set(`auctionRooms/${code}/liveBid`, null);
+  DB.set(`auctionRooms/${code}/sealedBids`, {});
+  DB.set(`auctionRooms/${code}/categoryBids`, {});
+
+  Utils.setSession({ role: 'bidder', roomCode: code });
+  Utils.toast(`Auction room created — code ${code}`, 'success');
+  window.location.href = `bidder.html?code=${code}`;
+}
+
+renderCategories();
+renderPlayers();
+</script>
+</body>
+</html>

@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auction Head — PitchCode</title>
+<link rel="stylesheet" href="css/theme.css">
+<style>
+  .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--panel-border); flex-wrap:wrap; }
+  .tabs button { background: none; border: none; color: var(--floodlight-dim); font-family: var(--font-body); font-weight: 600;
+    padding: 10px 16px; cursor: pointer; border-bottom: 2px solid transparent; }
+  .tabs button.active { color: var(--led-amber); border-bottom-color: var(--led-amber); }
+  .bid-history-row { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--panel-border); font-family:var(--font-mono); font-size:0.85rem; }
+  .player-hero { display:flex; justify-content:space-between; align-items:center; }
+  .player-hero h2 { font-size: 2.4rem; }
+  .team-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 14px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html" class="brand"><span class="mark">PitchCode</span><span class="tag">Auction Head</span></a>
+  <div class="flex gap-8">
+    <span class="badge badge-amber" id="codeBadge"></span>
+    <a class="btn btn-secondary btn-sm" id="viewerLink" target="_blank">Open Public View ↗</a>
+  </div>
+</div>
+
+<main><div class="wrap">
+
+  <div class="tabs">
+    <button class="active" data-tab="live" onclick="switchTab('live')">Live Auction</button>
+    <button data-tab="hidden" onclick="switchTab('hidden')">Hidden Categories</button>
+    <button data-tab="teams" onclick="switchTab('teams')">Teams &amp; Purses</button>
+    <button data-tab="results" onclick="switchTab('results')">Sold / Unsold</button>
+    <button data-tab="settings" onclick="switchTab('settings')">Settings</button>
+  </div>
+
+  <!-- SETTINGS TAB -->
+  <div id="tab-settings" class="tab-panel hidden">
+    <div class="panel" style="max-width:420px;">
+      <h3>Bid increment</h3>
+      <p class="hint">The minimum step owners raise a live bid by. Changing this applies immediately to the next bid placed.</p>
+      <div class="field-row mt-16" style="align-items:flex-end;">
+        <div class="field"><label>Amount</label><input type="number" id="bidIncrementInput" step="10000"></div>
+        <button class="btn btn-secondary btn-sm" onclick="saveBidIncrement()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LIVE AUCTION TAB -->
+  <div id="tab-live" class="tab-panel">
+    <div class="panel" id="currentPlayerPanel"></div>
+    <div class="panel hidden" id="liveBidPanel"></div>
+  </div>
+
+  <!-- HIDDEN CATEGORIES TAB -->
+  <div id="tab-hidden" class="tab-panel hidden">
+    <div class="panel">
+      <h3>Choose a hidden category</h3>
+      <select id="hiddenCategorySelect" onchange="renderHiddenCategory()" class="mt-16"></select>
+    </div>
+    <div id="hiddenCategoryBox" class="mt-16"></div>
+  </div>
+
+  <!-- TEAMS TAB -->
+  <div id="tab-teams" class="tab-panel hidden">
+    <div class="panel">
+      <h3>Add a team manually</h3>
+      <div class="field-row mt-16">
+        <div class="field"><label>Team name</label><input type="text" id="manualTeamName"></div>
+        <div class="field"><label>Owner name</label><input type="text" id="manualOwnerName"></div>
+        <div class="field"><label>Purse override</label><input type="number" id="manualPurse" placeholder="uses default if blank"></div>
+      </div>
+      <button class="btn btn-secondary" onclick="addTeamManually()">Add Team</button>
+    </div>
+    <div class="team-grid mt-16" id="teamsGrid"></div>
+  </div>
+
+  <!-- RESULTS TAB -->
+  <div id="tab-results" class="tab-panel hidden">
+    <div class="panel">
+      <table>
+        <thead><tr><th>Player</th><th>Category</th><th>Status</th><th>Team</th><th class="num">Price</th></tr></thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div></main>
+
+<div id="modalRoot"></div>
+
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/auction-engine.js"></script>
+<script>
+const code = Utils.qs('code');
+document.getElementById('codeBadge').textContent = code;
+document.getElementById('viewerLink').href = `viewer.html?code=${code}&type=auction`;
+
+function switchTab(tab) {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+  document.getElementById('tab-' + tab).classList.remove('hidden');
+  if (tab === 'hidden') renderHiddenTab();
+  if (tab === 'teams') renderTeamsTab();
+  if (tab === 'results') renderResultsTab();
+  if (tab === 'settings') renderSettingsTab();
+}
+
+function room() { return DB.get(`auctionRooms/${code}`); }
+
+/* ---------- SETTINGS ---------- */
+function renderSettingsTab() {
+  const r = room();
+  document.getElementById('bidIncrementInput').value = r.meta.bidIncrement || 100000;
+}
+
+function saveBidIncrement() {
+  const val = parseInt(document.getElementById('bidIncrementInput').value, 10);
+  if (!val || val <= 0) return Utils.toast('Enter an increment greater than 0', 'error');
+  DB.update(`auctionRooms/${code}/meta`, { bidIncrement: val });
+  Utils.toast('Bid increment updated', 'success');
+}
+
+/* ---------- LIVE AUCTION ---------- */
+function renderLiveTab() {
+  const r = room();
+  if (!r) return;
+  const visibleCats = r.meta.categoryOrder.filter(c => !r.meta.hiddenCategories[c]);
+  const player = Auction.nextPlayer(Object.values(r.players), visibleCats);
+
+  const panel = document.getElementById('currentPlayerPanel');
+  if (!player) {
+    panel.innerHTML = '<h3>No players left in open categories.</h3><p class="muted">Check the Hidden Categories tab or Results tab.</p>';
+    document.getElementById('liveBidPanel').classList.add('hidden');
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="player-hero">
+      <div class="flex gap-16">
+        ${player.photo ? `<img src="${player.photo}" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--led-amber-dim);">` : ''}
+        <div>
+          <span class="eyebrow">${Utils.escapeHtml(player.category)} · Base ${Utils.formatCurrency(player.basePrice)}</span>
+          <h2>${Utils.escapeHtml(player.name)}</h2>
+          <p class="muted">${player.role}</p>
+        </div>
+      </div>
+      <div class="flex gap-8">
+        ${!r.liveBid || r.liveBid.playerId !== player.id ? `<button class="btn btn-primary" onclick="startLiveBid('${player.id}')">Start Live Bidding</button>` : ''}
+        <button class="btn btn-secondary" onclick="openDirectSell('${player.id}')">Sell Directly</button>
+        <button class="btn btn-ghost" onclick="markUnsold('${player.id}')">Mark Unsold</button>
+      </div>
+    </div>`;
+
+  if (r.liveBid && r.liveBid.playerId === player.id) {
+    renderLiveBidPanel(r, player);
+  } else {
+    document.getElementById('liveBidPanel').classList.add('hidden');
+  }
+}
+
+function startLiveBid(playerId) {
+  const player = room().players[playerId];
+  const liveBid = { playerId, currentBid: player.basePrice, currentBidder: null, bidHistory: [], sealedMode: false };
+  DB.set(`auctionRooms/${code}/liveBid`, liveBid);
+  DB.set(`auctionRooms/${code}/sealedBids`, {});
+  renderLiveTab();
+}
+
+function renderLiveBidPanel(r, player) {
+  const panel = document.getElementById('liveBidPanel');
+  panel.classList.remove('hidden');
+  const bidderTeam = r.liveBid.currentBidder ? r.teams[r.liveBid.currentBidder] : null;
+
+  if (!r.liveBid.sealedMode) {
+    panel.innerHTML = `
+      <div class="flex-between">
+        <div>
+          <span class="eyebrow">Current Bid</span>
+          <h2 class="mono">${Utils.formatCurrency(r.liveBid.currentBid)}</h2>
+          <p class="muted">${bidderTeam ? 'Leading: ' + Utils.escapeHtml(bidderTeam.name) : 'No bids yet — base price shown'}</p>
+        </div>
+        <div class="flex gap-8">
+          <button class="btn btn-danger" onclick="switchToSealed('${player.id}')">End with Hidden Bid</button>
+          <button class="btn btn-primary" ${bidderTeam ? '' : 'disabled'} onclick="finalizeLiveSale('${player.id}')">Sell at Current Bid</button>
+        </div>
+      </div>
+      <h3 class="mt-24">Bid history</h3>
+      <div class="mt-16">
+        ${r.liveBid.bidHistory.slice().reverse().map(b => `
+          <div class="bid-history-row"><span>${Utils.escapeHtml((r.teams[b.teamId]||{}).name || b.teamId)}</span><span>${Utils.formatCurrency(b.amount)}</span></div>
+        `).join('') || '<p class="muted">No bids placed yet. Owners bid from their dashboard.</p>'}
+      </div>`;
+  } else {
+    const sealed = r.sealedBids || {};
+    const count = Object.keys(sealed).length;
+    panel.innerHTML = `
+      <div class="flex-between">
+        <div>
+          <span class="eyebrow">Hidden Bid — In Progress</span>
+          <h3>Owners are submitting sealed prices for ${Utils.escapeHtml(player.name)}</h3>
+          <p class="muted">Must exceed the current highest bid of ${Utils.formatCurrency(r.liveBid.sealedFloor)}. ${count} team(s) have submitted so far.</p>
+        </div>
+        <button class="btn btn-primary" onclick="resolveSealed('${player.id}')">Resolve &amp; Show Highest</button>
+      </div>`;
+  }
+}
+
+function switchToSealed(playerId) {
+  const liveBid = room().liveBid;
+  liveBid.sealedMode = true;
+  liveBid.sealedFloor = liveBid.currentBid; // sealed bids must exceed this, not just meet it
+  DB.set(`auctionRooms/${code}/liveBid`, liveBid);
+  DB.set(`auctionRooms/${code}/sealedBids`, {});
+  renderLiveTab();
+}
+
+function resolveSealed(playerId) {
+  const r = room();
+  const player = r.players[playerId];
+  const floor = r.liveBid.sealedFloor != null ? r.liveBid.sealedFloor : player.basePrice;
+  const strict = r.liveBid.sealedFloor != null; // must exceed, not just meet, the prior live bid
+  const res = Auction.resolveSealedBid(r.sealedBids || {}, floor, strict);
+  const root = document.getElementById('modalRoot');
+  if (!res.winnerTeamId) {
+    root.innerHTML = `<div class="modal-backdrop"><div class="modal">
+      <h3>No valid sealed bids</h3>
+      <p class="mt-16">No submissions ${strict ? 'exceeded the previous highest bid of' : 'met the base price of'} ${Utils.formatCurrency(floor)}.</p>
+      <button class="btn btn-secondary btn-block mt-16" onclick="closeModal()">Close</button>
+      <button class="btn btn-danger btn-block mt-8" onclick="markUnsold('${playerId}'); closeModal();">Mark Unsold</button>
+    </div></div>`;
+    return;
+  }
+  root.innerHTML = `<div class="modal-backdrop"><div class="modal">
+    <h3>Highest sealed bid</h3>
+    <p class="mt-16"><b>${Utils.escapeHtml(r.teams[res.winnerTeamId].name)}</b> — ${Utils.formatCurrency(res.winningAmount)}</p>
+    ${res.secondHighest !== null ? `<p class="muted">Second highest: ${Utils.formatCurrency(res.secondHighest)}</p>` : ''}
+    <button class="btn btn-primary btn-block mt-16" onclick="confirmSealedSale('${playerId}','${res.winnerTeamId}',${res.winningAmount})">Confirm Sale</button>
+    <button class="btn btn-ghost btn-block mt-8" onclick="closeModal()">Cancel</button>
+  </div></div>`;
+}
+
+function confirmSealedSale(playerId, teamId, amount) {
+  sellPlayer(playerId, teamId, amount);
+  DB.set(`auctionRooms/${code}/liveBid`, null);
+  closeModal();
+  renderLiveTab();
+}
+
+function finalizeLiveSale(playerId) {
+  const r = room();
+  sellPlayer(playerId, r.liveBid.currentBidder, r.liveBid.currentBid);
+  DB.set(`auctionRooms/${code}/liveBid`, null);
+  renderLiveTab();
+}
+
+function openDirectSell(playerId) {
+  const r = room();
+  const teamOpts = Object.values(r.teams).map(t => `<option value="${t.id}">${Utils.escapeHtml(t.name)} (${Utils.formatCurrency(t.remainingPurse)})</option>`).join('');
+  document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-backdrop"><div class="modal">
+      <h3>Sell directly</h3>
+      <div class="field mt-16"><label>Team</label><select id="directTeam">${teamOpts}</select></div>
+      <div class="field"><label>Price</label><input type="number" id="directPrice" value="${r.players[playerId].basePrice}"></div>
+      <button class="btn btn-primary btn-block" onclick="confirmDirectSell('${playerId}')">Confirm Sale</button>
+      <button class="btn btn-ghost btn-block mt-8" onclick="closeModal()">Cancel</button>
+    </div></div>`;
+}
+function confirmDirectSell(playerId) {
+  const teamId = document.getElementById('directTeam').value;
+  const price = parseInt(document.getElementById('directPrice').value, 10);
+  sellPlayer(playerId, teamId, price);
+  DB.set(`auctionRooms/${code}/liveBid`, null);
+  closeModal();
+  renderLiveTab();
+}
+
+function sellPlayer(playerId, teamId, price) {
+  const r = room();
+  const team = r.teams[teamId];
+  const player = r.players[playerId];
+  if (price > team.remainingPurse) { Utils.toast('Price exceeds team purse', 'error'); return; }
+  const { updatedTeam, updatedPlayer } = Auction.finalizeSale(team, player, price);
+  DB.set(`auctionRooms/${code}/teams/${teamId}`, updatedTeam);
+  DB.set(`auctionRooms/${code}/players/${playerId}`, updatedPlayer);
+  Utils.toast(`${player.name} sold to ${team.name} for ${Utils.formatCurrency(price)}`, 'success');
+}
+
+function markUnsold(playerId) {
+  const r = room();
+  DB.set(`auctionRooms/${code}/players/${playerId}`, Auction.markUnsold(r.players[playerId]));
+  DB.set(`auctionRooms/${code}/liveBid`, null);
+  closeModal();
+  renderLiveTab();
+}
+
+function closeModal() { document.getElementById('modalRoot').innerHTML = ''; }
+
+/* ---------- HIDDEN CATEGORIES ---------- */
+function renderHiddenTab() {
+  const r = room();
+  const hiddenCats = Object.keys(r.meta.hiddenCategories || {});
+  const sel = document.getElementById('hiddenCategorySelect');
+  sel.innerHTML = hiddenCats.map(c => `<option value="${Utils.escapeHtml(c)}">${Utils.escapeHtml(c)}</option>`).join('') || '<option value="">No hidden categories set up</option>';
+  renderHiddenCategory();
+}
+
+function renderHiddenCategory() {
+  const r = room();
+  const cat = document.getElementById('hiddenCategorySelect').value;
+  const box = document.getElementById('hiddenCategoryBox');
+  if (!cat) { box.innerHTML = ''; return; }
+
+  const players = Object.values(r.players).filter(p => p.category === cat && p.status === 'unsold');
+  const catBids = (r.categoryBids && r.categoryBids[cat]) || {}; // { playerId: { teamId: amount } }
+  const basePrice = r.meta.categoryBasePrices[cat] || 0;
+
+  const bidsArray = [];
+  Object.entries(catBids).forEach(([playerId, byTeam]) => {
+    Object.entries(byTeam).forEach(([teamId, amount]) => bidsArray.push({ playerId, teamId, amount }));
+  });
+
+  box.innerHTML = `
+    <div class="panel">
+      <div class="flex-between">
+        <h3>${Utils.escapeHtml(cat)} — ${players.length} player(s) remaining</h3>
+        <button class="btn btn-primary btn-sm" onclick="computeRecommendations('${cat}')">Get Recommendations</button>
+      </div>
+      <table class="mt-16">
+        <thead><tr><th>Player</th><th>Submissions</th></tr></thead>
+        <tbody>
+          ${players.map(p => `<tr><td>${Utils.escapeHtml(p.name)}</td><td>${Object.keys(catBids[p.id]||{}).length} team(s)</td></tr>`).join('') || '<tr><td colspan="2" class="muted">No unsold players in this category.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+    <div id="recommendationBox" class="mt-16"></div>`;
+
+  window._hiddenCatState = { cat, bidsArray, basePrice, players };
+}
+
+function computeRecommendations(cat) {
+  const r = room();
+  const { bidsArray, basePrice, players } = window._hiddenCatState;
+  const recs = Auction.recommendHiddenCategoryAssignments(bidsArray, r.teams, basePrice);
+  const teamOpts = Object.values(r.teams);
+
+  const box = document.getElementById('recommendationBox');
+  box.innerHTML = `
+    <div class="panel">
+      <h3>Recommended assignments</h3>
+      <p class="hint">Highest affordable bid wins each player. Review, override if needed, then confirm.</p>
+      <table class="mt-16">
+        <thead><tr><th>Player</th><th>Recommended Team</th><th>Price</th><th></th></tr></thead>
+        <tbody>
+          ${players.map(p => {
+            const rec = recs.find(r2 => r2.playerId === p.id);
+            return `<tr data-player="${p.id}">
+              <td>${Utils.escapeHtml(p.name)}</td>
+              <td><select class="recTeamSelect" data-player="${p.id}">
+                <option value="">— unsold —</option>
+                ${teamOpts.map(t => `<option value="${t.id}" ${rec && rec.teamId === t.id ? 'selected' : ''}>${Utils.escapeHtml(t.name)}</option>`).join('')}
+              </select></td>
+              <td><input type="number" class="recPriceInput" data-player="${p.id}" value="${rec ? rec.amount : basePrice}" style="width:110px;"></td>
+              <td class="muted">${rec ? 'recommended' : 'no valid bid'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      <button class="btn btn-primary mt-16" onclick="confirmHiddenCategorySales()">Confirm &amp; Sell All</button>
+    </div>`;
+}
+
+function confirmHiddenCategorySales() {
+  document.querySelectorAll('.recTeamSelect').forEach(sel => {
+    const playerId = sel.dataset.player;
+    const teamId = sel.value;
+    if (!teamId) return;
+    const priceInput = document.querySelector(`.recPriceInput[data-player="${playerId}"]`);
+    const price = parseInt(priceInput.value, 10);
+    sellPlayer(playerId, teamId, price);
+  });
+  Utils.toast('Hidden category resolved', 'success');
+  renderHiddenCategory();
+}
+
+/* ---------- TEAMS ---------- */
+function addTeamManually() {
+  const name = document.getElementById('manualTeamName').value.trim();
+  const ownerName = document.getElementById('manualOwnerName').value.trim();
+  const purseOverride = document.getElementById('manualPurse').value;
+  if (!name) return Utils.toast('Enter a team name', 'error');
+  const r = room();
+  const purse = purseOverride ? parseInt(purseOverride, 10) : r.meta.defaultPurse;
+  const id = Utils.generateId();
+  DB.set(`auctionRooms/${code}/teams/${id}`, { id, name, ownerName, totalPurse: purse, remainingPurse: purse, squad: [] });
+  document.getElementById('manualTeamName').value = '';
+  document.getElementById('manualOwnerName').value = '';
+  document.getElementById('manualPurse').value = '';
+  renderTeamsTab();
+}
+
+function renderTeamsTab() {
+  const r = room();
+  const teams = Object.values(r.teams || {});
+  document.getElementById('teamsGrid').innerHTML = teams.map(t => {
+    const pct = Math.round(100 * (t.totalPurse - t.remainingPurse) / t.totalPurse);
+    return `<div class="team-card">
+      <div class="flex-between"><b>${Utils.escapeHtml(t.name)}</b><span class="muted mono">${(t.squad||[]).length} players</span></div>
+      <div class="hint mt-8">${Utils.escapeHtml(t.ownerName || '')}</div>
+      <div class="mono mt-8">${Utils.formatCurrency(t.remainingPurse)} left</div>
+      <div class="purse-bar"><div style="width:${pct}%"></div></div>
+    </div>`;
+  }).join('') || '<p class="muted">No teams yet.</p>';
+}
+
+/* ---------- RESULTS ---------- */
+function renderResultsTab() {
+  const r = room();
+  const rows = Object.values(r.players).map(p => `
+    <tr>
+      <td>${Utils.escapeHtml(p.name)}</td>
+      <td>${Utils.escapeHtml(p.category)}</td>
+      <td><span class="badge ${p.status==='sold'?'badge-green':(p.status==='unsold_final'?'muted':'badge-amber')}">${p.status}</span></td>
+      <td>${p.soldTo ? Utils.escapeHtml(r.teams[p.soldTo].name) : '-'}</td>
+      <td class="num">${p.soldPrice ? Utils.formatCurrency(p.soldPrice) : '-'}</td>
+    </tr>`).join('');
+  document.getElementById('resultsBody').innerHTML = rows;
+}
+
+/* ---------- Live refresh ---------- */
+DB.on(`auctionRooms/${code}`, () => {
+  const activeTab = document.querySelector('.tabs button.active').dataset.tab;
+  if (activeTab === 'live') renderLiveTab();
+  if (activeTab === 'teams') renderTeamsTab();
+  if (activeTab === 'results') renderResultsTab();
+});
+
+renderLiveTab();
+</script>
+</body>
+</html>
